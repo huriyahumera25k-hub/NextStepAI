@@ -10,8 +10,7 @@ from urllib.parse import urlparse
 
 
 # ============================================================
-# NEXTSTEP AI
-# Government Services Assistant
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -23,16 +22,12 @@ st.set_page_config(
 
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
-
-APP_NAME = "NextStep AI"
 
 DATABASE_FILE = "nextstep_ai.db"
 
-OPENROUTER_URL = (
-    "https://openrouter.ai/api/v1/chat/completions"
-)
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 
@@ -53,7 +48,7 @@ SUPPORTED_LANGUAGES = [
 
 
 # ============================================================
-# SECRET HELPER
+# SECRETS
 # ============================================================
 
 def get_secret(name, default=None):
@@ -98,20 +93,23 @@ HOLIDAYS_CONFIG = get_secret(
 # SESSION STATE
 # ============================================================
 
-DEFAULT_STATE = {
-    "messages": [],
-    "selected_service": None,
-    "requirements": [],
-    "timeline_result": None,
-    "application_data": None,
-    "language": "English",
-    "last_service_request": ""
-}
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-for key, value in DEFAULT_STATE.items():
+if "selected_service" not in st.session_state:
+    st.session_state.selected_service = None
 
-    if key not in st.session_state:
-        st.session_state[key] = value
+if "requirements" not in st.session_state:
+    st.session_state.requirements = []
+
+if "timeline_result" not in st.session_state:
+    st.session_state.timeline_result = None
+
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+
+if "last_application_id" not in st.session_state:
+    st.session_state.last_application_id = ""
 
 
 # ============================================================
@@ -182,7 +180,7 @@ init_database()
 
 
 # ============================================================
-# DATABASE: SAVE
+# DATABASE SAVE
 # ============================================================
 
 def save_application(application):
@@ -194,7 +192,6 @@ def save_application(application):
     cursor.execute(
         """
         INSERT INTO applications (
-
             application_id,
             service_name,
             service_category,
@@ -211,19 +208,23 @@ def save_application(application):
             government_reference,
             created_at,
             updated_at
-
         )
-
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             application["application_id"],
-            application["service_name"],
             application.get(
                 "service_category",
                 ""
             ),
-            application["jurisdiction"],
+            application.get(
+                "service_category",
+                ""
+            ),
+            application.get(
+                "jurisdiction",
+                ""
+            ),
             application.get(
                 "department",
                 ""
@@ -235,7 +236,10 @@ def save_application(application):
                     {}
                 )
             ),
-            application["status"],
+            application.get(
+                "status",
+                "Application Submitted"
+            ),
             application["submission_date"],
             application.get(
                 "official_processing_days",
@@ -257,8 +261,14 @@ def save_application(application):
                 "government_reference",
                 ""
             ),
-            application["created_at"],
-            application["updated_at"]
+            application.get(
+                "created_at",
+                datetime.now().isoformat()
+            ),
+            application.get(
+                "updated_at",
+                datetime.now().isoformat()
+            )
         )
     )
 
@@ -267,7 +277,7 @@ def save_application(application):
 
 
 # ============================================================
-# DATABASE: LOAD
+# DATABASE LOAD
 # ============================================================
 
 def load_application(application_id):
@@ -279,7 +289,6 @@ def load_application(application_id):
     cursor.execute(
         """
         SELECT
-
             application_id,
             service_name,
             service_category,
@@ -296,9 +305,7 @@ def load_application(application_id):
             government_reference,
             created_at,
             updated_at
-
         FROM applications
-
         WHERE application_id = ?
         """,
         (application_id,)
@@ -319,7 +326,6 @@ def load_application(application_id):
         applicant_data = {}
 
     return {
-
         "application_id": row[0],
         "service_name": row[1],
         "service_category": row[2],
@@ -340,7 +346,7 @@ def load_application(application_id):
 
 
 # ============================================================
-# DATABASE: UPDATE
+# DATABASE UPDATE
 # ============================================================
 
 def update_application(
@@ -348,10 +354,7 @@ def update_application(
     **updates
 ):
 
-    if not updates:
-        return
-
-    allowed_fields = {
+    allowed = {
         "status",
         "government_reference",
         "expected_completion_date",
@@ -365,7 +368,7 @@ def update_application(
 
     for field, value in updates.items():
 
-        if field not in allowed_fields:
+        if field not in allowed:
             continue
 
         fields.append(
@@ -395,9 +398,7 @@ def update_application(
 
     query = f"""
         UPDATE applications
-
         SET {", ".join(fields)}
-
         WHERE application_id = ?
     """
 
@@ -411,10 +412,10 @@ def update_application(
 
 
 # ============================================================
-# DATABASE: RECENT APPLICATIONS
+# RECENT APPLICATIONS
 # ============================================================
 
-def get_recent_applications(limit=10):
+def get_recent_applications(limit=5):
 
     connection = get_connection()
 
@@ -442,7 +443,7 @@ def get_recent_applications(limit=10):
 
 
 # ============================================================
-# DATE HELPERS
+# DATE FUNCTIONS
 # ============================================================
 
 def parse_date(value):
@@ -506,14 +507,14 @@ def add_working_days(
 ):
 
     current = start_date
-    added = 0
+    count = 0
 
-    while added < number_of_days:
+    while count < number_of_days:
 
         current += timedelta(days=1)
 
         if is_working_day(current):
-            added += 1
+            count += 1
 
     return current
 
@@ -592,7 +593,7 @@ def calculate_remaining_days(
 
 
 # ============================================================
-# URL HELPERS
+# URL FUNCTIONS
 # ============================================================
 
 def valid_url(url):
@@ -624,17 +625,20 @@ def official_domain(url):
 
     try:
 
-        hostname = (
-            urlparse(url)
-            .hostname
-            .lower()
-        )
+        hostname = urlparse(
+            url
+        ).hostname
+
+        if not hostname:
+            return False
+
+        hostname = hostname.lower()
 
     except Exception:
 
         return False
 
-    official_endings = [
+    endings = [
         ".gov",
         ".gov.in",
         ".nic.in",
@@ -645,12 +649,12 @@ def official_domain(url):
         hostname.endswith(
             ending
         )
-        for ending in official_endings
+        for ending in endings
     )
 
 
 # ============================================================
-# OPENROUTER AI
+# OPENROUTER
 # ============================================================
 
 def call_ai(
@@ -668,31 +672,23 @@ def call_ai(
         }
 
     headers = {
-
         "Authorization":
             f"Bearer {OPENROUTER_API_KEY}",
-
         "Content-Type":
             "application/json",
-
         "HTTP-Referer":
             "https://nextstep-ai.streamlit.app",
-
         "X-Title":
             "NextStep AI"
     }
 
     payload = {
-
         "model":
             OPENROUTER_MODEL,
-
         "messages":
             messages,
-
         "temperature":
             temperature,
-
         "max_tokens":
             max_tokens
     }
@@ -720,7 +716,7 @@ def call_ai(
             return {
                 "success": False,
                 "error":
-                    "No AI response was returned."
+                    "No response was returned by the AI."
             }
 
         content = (
@@ -845,19 +841,19 @@ def identify_service(
 ):
 
     system_prompt = f"""
-You are the intelligence engine of NextStep AI.
+You are the main intelligence engine of NextStep AI.
 
-Identify the government/public service the user is
-asking about.
+Identify the government or public service requested by
+the user.
 
 Preferred language:
 {language}
 
-Return ONLY JSON.
+Do not invent facts.
 
-Do not invent information.
+If the jurisdiction cannot be determined, use "Unknown".
 
-If jurisdiction is unclear, use "Unknown".
+Return ONLY valid JSON.
 
 Schema:
 
@@ -892,7 +888,10 @@ Schema:
         result["content"]
     )
 
-    if not isinstance(data, dict):
+    if not isinstance(
+        data,
+        dict
+    ):
 
         return {
             "success": False,
@@ -917,7 +916,7 @@ def generate_requirements(
 ):
 
     system_prompt = f"""
-You are the requirements engine for NextStep AI.
+You are the requirements assistant for NextStep AI.
 
 Service:
 {service_name}
@@ -928,10 +927,10 @@ Jurisdiction:
 Language:
 {language}
 
-Give likely application information and documents.
+Generate likely information and documents needed.
 
-Do not pretend that AI-generated requirements are
-official legal requirements.
+Do not present AI-generated information as official
+legal requirements.
 
 Return ONLY JSON.
 
@@ -971,7 +970,10 @@ Schema:
         result["content"]
     )
 
-    if not isinstance(data, dict):
+    if not isinstance(
+        data,
+        dict
+    ):
 
         return {
             "success": False,
@@ -986,12 +988,10 @@ Schema:
 
 
 # ============================================================
-# OFFICIAL PAGE READER
+# OFFICIAL WEBPAGE READER
 # ============================================================
 
-def read_official_page(
-    url
-):
+def read_official_page(url):
 
     if not valid_url(url):
 
@@ -1021,14 +1021,16 @@ def read_official_page(
             r"<script.*?</script>",
             " ",
             html,
-            flags=re.DOTALL | re.IGNORECASE
+            flags=re.DOTALL |
+            re.IGNORECASE
         )
 
         html = re.sub(
             r"<style.*?</style>",
             " ",
             html,
-            flags=re.DOTALL | re.IGNORECASE
+            flags=re.DOTALL |
+            re.IGNORECASE
         )
 
         text = re.sub(
@@ -1053,7 +1055,7 @@ def read_official_page(
         return {
             "success": False,
             "error":
-                f"Unable to read the page: {error}"
+                f"Unable to read webpage: {error}"
         }
 
 
@@ -1086,19 +1088,19 @@ def verify_timeline(
         return page
 
     system_prompt = """
-You verify processing timelines for NextStep AI.
+You verify government processing timelines.
 
 Use ONLY the supplied official webpage content.
 
-Find an explicitly stated processing period.
+Find an explicitly stated processing time.
 
 Examples:
 
-"7 working days"
-"15 days"
-"within 30 calendar days"
+7 working days
+15 days
+within 30 calendar days
 
-Do NOT infer a timeline.
+Never infer a timeline.
 
 Return ONLY JSON.
 
@@ -1123,7 +1125,7 @@ Jurisdiction:
 Official URL:
 {url}
 
-Official webpage content:
+Official webpage:
 {page["text"]}
 
 Language:
@@ -1151,13 +1153,16 @@ Language:
         result["content"]
     )
 
-    if not isinstance(data, dict):
+    if not isinstance(
+        data,
+        dict
+    ):
 
         return {
             "success": False,
             "verified": False,
             "error":
-                "Could not interpret the official page."
+                "Could not interpret the official webpage."
         }
 
     processing_days = data.get(
@@ -1179,29 +1184,20 @@ Language:
         return {
             "success": True,
             "verified": False,
-            "data": data,
-            "message":
-                "No explicit processing timeline "
-                "was found."
+            "data": data
         }
 
     return {
-
         "success": True,
-
         "verified": True,
-
         "processing_days":
             processing_days,
-
         "timeline_type":
             data.get(
                 "timeline_type",
                 "unknown"
             ),
-
-        "data":
-            data
+        "data": data
     }
 
 
@@ -1224,39 +1220,41 @@ def create_application_id():
 
 
 # ============================================================
-# GOVERNMENT SUBMISSION CONNECTOR
+# SUBMISSION
 # ============================================================
 
 def submit_application(
     application
 ):
 
-    # If an authorized endpoint exists,
-    # use it.
-
     if GOVERNMENT_SUBMISSION_URL:
 
         payload = {
             "service_name":
-                application["service_name"],
-
+                application[
+                    "service_name"
+                ],
             "jurisdiction":
-                application["jurisdiction"],
-
+                application[
+                    "jurisdiction"
+                ],
             "department":
                 application.get(
                     "department",
                     ""
                 ),
-
             "applicant_name":
-                application["applicant_name"],
-
+                application[
+                    "applicant_name"
+                ],
             "applicant_data":
-                application["applicant_data"],
-
+                application[
+                    "applicant_data"
+                ],
             "submission_date":
-                application["submission_date"]
+                application[
+                    "submission_date"
+                ]
         }
 
         try:
@@ -1313,10 +1311,6 @@ def submit_application(
                     str(error)
             }
 
-    # Internal application workflow.
-    # This makes the application usable even before
-    # an external government API is connected.
-
     return {
         "success": True,
         "application_id":
@@ -1329,12 +1323,10 @@ def submit_application(
 
 
 # ============================================================
-# GOVERNMENT STATUS CONNECTOR
+# STATUS
 # ============================================================
 
-def fetch_status(
-    application
-):
+def fetch_status(application):
 
     if not GOVERNMENT_STATUS_URL:
 
@@ -1344,9 +1336,7 @@ def fetch_status(
                 application.get(
                     "status",
                     "Application Submitted"
-                ),
-            "connected":
-                False
+                )
         }
 
     try:
@@ -1377,9 +1367,7 @@ def fetch_status(
                 data.get(
                     "status",
                     "Processing"
-                ),
-            "connected":
-                True
+                )
         }
 
     except Exception:
@@ -1390,14 +1378,12 @@ def fetch_status(
                 application.get(
                     "status",
                     "Application Submitted"
-                ),
-            "connected":
-                False
+                )
         }
 
 
 # ============================================================
-# CUSTOM CSS
+# SIMPLE CSS
 # ============================================================
 
 st.markdown(
@@ -1405,109 +1391,15 @@ st.markdown(
     <style>
 
     .stApp {
-        background:
-            linear-gradient(
-                180deg,
-                #f8fafc 0%,
-                #eef2ff 100%
-            );
+        background-color: #f7f9fc;
     }
 
     section[data-testid="stSidebar"] {
-        background: #111827;
+        background-color: #111827;
     }
 
     section[data-testid="stSidebar"] * {
-        color: #f9fafb !important;
-    }
-
-    .hero-box {
-        padding: 35px;
-        border-radius: 24px;
-        background:
-            linear-gradient(
-                135deg,
-                #111827,
-                #1d4ed8
-            );
-        color: white;
-        margin-bottom: 25px;
-        box-shadow:
-            0 12px 35px
-            rgba(30, 64, 175, 0.20);
-    }
-
-    .hero-title {
-        font-size: 44px;
-        font-weight: 800;
-        margin: 0;
-        color: white;
-    }
-
-    .hero-subtitle {
-        font-size: 18px;
-        margin-top: 10px;
-        color: #dbeafe;
-    }
-
-    .feature-card {
-        padding: 22px;
-        border-radius: 18px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        min-height: 150px;
-        box-shadow:
-            0 5px 18px
-            rgba(15, 23, 42, 0.05);
-    }
-
-    .feature-icon {
-        font-size: 30px;
-    }
-
-    .feature-title {
-        font-size: 18px;
-        font-weight: 700;
-        margin-top: 8px;
-    }
-
-    .feature-text {
-        color: #64748b;
-        font-size: 14px;
-        margin-top: 5px;
-    }
-
-    .service-card {
-        padding: 20px;
-        border-radius: 18px;
-        background: white;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 15px;
-    }
-
-    .success-card {
-        padding: 20px;
-        border-radius: 16px;
-        background: #ecfdf5;
-        border: 1px solid #a7f3d0;
-    }
-
-    .timeline-card {
-        padding: 20px;
-        border-radius: 16px;
-        background: white;
-        border: 1px solid #e2e8f0;
-        text-align: center;
-    }
-
-    .timeline-number {
-        font-size: 34px;
-        font-weight: 800;
-    }
-
-    .timeline-label {
-        color: #64748b;
-        font-size: 13px;
+        color: white !important;
     }
 
     </style>
@@ -1522,12 +1414,10 @@ st.markdown(
 
 with st.sidebar:
 
-    st.markdown(
-        "## 🤖 NextStep AI"
-    )
+    st.title("🤖 NextStep AI")
 
     st.caption(
-        "Your intelligent government-services assistant"
+        "Intelligent government services assistant"
     )
 
     st.divider()
@@ -1542,8 +1432,8 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown(
-        "### System"
+    st.subheader(
+        "System"
     )
 
     if OPENROUTER_API_KEY:
@@ -1555,126 +1445,74 @@ with st.sidebar:
     else:
 
         st.error(
-            "AI key required"
+            "Add OpenRouter API key"
         )
 
     st.divider()
 
     st.caption(
-        "NextStep AI helps discover services, "
-        "prepare applications and track progress."
+        "Discover services • Prepare applications • Track progress"
     )
 
 
 # ============================================================
-# HERO
+# HOME
 # ============================================================
 
-st.markdown(
-    """
-    <div class="hero-box">
-
-        <div class="hero-title">
-            🤖 NextStep AI
-        </div>
-
-        <div class="hero-subtitle">
-            One intelligent assistant for
-            discovering, preparing and tracking
-            public services.
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True
+st.title(
+    "🤖 NextStep AI"
 )
 
+st.subheader(
+    "Your intelligent government-services assistant"
+)
 
-# ============================================================
-# HOME FEATURES
-# ============================================================
+st.write(
+    "Discover public services, understand requirements, "
+    "prepare applications and track your progress from one place."
+)
 
-col1, col2, col3 = st.columns(3)
+st.divider()
 
-with col1:
+feature1, feature2, feature3 = st.columns(3)
 
-    st.markdown(
-        """
-        <div class="feature-card">
+with feature1:
 
-            <div class="feature-icon">
-                🔎
-            </div>
+    st.subheader(
+        "🔎 Discover"
+    )
 
-            <div class="feature-title">
-                Discover
-            </div>
-
-            <div class="feature-text">
-                Describe the service naturally
-                and let AI identify the
-                relevant government service.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.write(
+        "Describe the government service you need "
+        "in natural language."
     )
 
 
-with col2:
+with feature2:
 
-    st.markdown(
-        """
-        <div class="feature-card">
+    st.subheader(
+        "📋 Prepare"
+    )
 
-            <div class="feature-icon">
-                📋
-            </div>
-
-            <div class="feature-title">
-                Prepare
-            </div>
-
-            <div class="feature-text">
-                Understand requirements,
-                organize applicant information
-                and prepare your application.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.write(
+        "Let AI organize the information and "
+        "requirements needed for your application."
     )
 
 
-with col3:
+with feature3:
 
-    st.markdown(
-        """
-        <div class="feature-card">
+    st.subheader(
+        "⏳ Track"
+    )
 
-            <div class="feature-icon">
-                ⏳
-            </div>
-
-            <div class="feature-title">
-                Track
-            </div>
-
-            <div class="feature-text">
-                Store your application,
-                monitor status and calculate
-                remaining processing time.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.write(
+        "Get an application ID and monitor "
+        "processing progress."
     )
 
 
-st.write("")
+st.divider()
 
 
 # ============================================================
@@ -1701,7 +1539,7 @@ with assistant_tab:
     )
 
     st.write(
-        "Describe what you want in your own words."
+        "Tell NextStep AI what you want to apply for."
     )
 
     for message in st.session_state.messages:
@@ -1715,7 +1553,7 @@ with assistant_tab:
             )
 
     prompt = st.chat_input(
-        "Example: I need to apply for a birth certificate..."
+        "Example: I need a birth certificate"
     )
 
     if prompt:
@@ -1742,162 +1580,166 @@ with assistant_tab:
                     st.session_state.language
                 )
 
-                if result["success"]:
+            if result["success"]:
 
-                    service = result["data"]
+                service = result["data"]
 
-                    st.session_state.selected_service = service
+                st.session_state.selected_service = (
+                    service
+                )
 
-                    st.session_state.last_service_request = prompt
+                service_name = service.get(
+                    "service_name",
+                    "Unknown"
+                )
 
-                    service_name = service.get(
-                        "service_name",
-                        "Unknown service"
-                    )
+                category = service.get(
+                    "service_category",
+                    "Unknown"
+                )
 
-                    jurisdiction = service.get(
-                        "jurisdiction",
-                        "Unknown"
-                    )
+                jurisdiction = service.get(
+                    "jurisdiction",
+                    "Unknown"
+                )
 
-                    category = service.get(
-                        "service_category",
-                        "Public service"
-                    )
+                department = service.get(
+                    "department",
+                    "Unknown"
+                )
 
-                    department = service.get(
-                        "department",
-                        "Unknown"
-                    )
+                intent = service.get(
+                    "intent",
+                    "Application"
+                )
 
-                    intent = service.get(
-                        "intent",
-                        "Application"
-                    )
+                st.success(
+                    "Service identified"
+                )
 
-                    st.markdown(
-                        "### 🔎 Service identified"
-                    )
+                col1, col2 = st.columns(2)
 
-                    c1, c2 = st.columns(2)
-
-                    with c1:
-
-                        st.write(
-                            f"**Service**  \n"
-                            f"{service_name}"
-                        )
-
-                        st.write(
-                            f"**Category**  \n"
-                            f"{category}"
-                        )
-
-                    with c2:
-
-                        st.write(
-                            f"**Jurisdiction**  \n"
-                            f"{jurisdiction}"
-                        )
-
-                        st.write(
-                            f"**Department**  \n"
-                            f"{department}"
-                        )
+                with col1:
 
                     st.write(
-                        f"**Request type:** {intent}"
+                        f"**Service:** {service_name}"
                     )
+
+                    st.write(
+                        f"**Category:** {category}"
+                    )
+
+                with col2:
+
+                    st.write(
+                        f"**Jurisdiction:** {jurisdiction}"
+                    )
+
+                    st.write(
+                        f"**Department:** {department}"
+                    )
+
+                st.write(
+                    f"**Request type:** {intent}"
+                )
+
+                if service.get(
+                    "explanation"
+                ):
 
                     st.info(
-                        service.get(
-                            "explanation",
-                            "The service has been identified."
+                        service[
+                            "explanation"
+                        ]
+                    )
+
+                with st.spinner(
+                    "Finding likely requirements..."
+                ):
+
+                    requirements_result = (
+                        generate_requirements(
+                            service_name,
+                            jurisdiction,
+                            st.session_state.language
                         )
                     )
 
-                    with st.spinner(
-                        "Preparing requirements..."
-                    ):
+                if requirements_result["success"]:
 
-                        requirements_result = (
-                            generate_requirements(
-                                service_name,
-                                jurisdiction,
-                                st.session_state.language
-                            )
+                    requirements = (
+                        requirements_result[
+                            "data"
+                        ].get(
+                            "requirements",
+                            []
                         )
-
-                    if requirements_result["success"]:
-
-                        requirements = (
-                            requirements_result[
-                                "data"
-                            ].get(
-                                "requirements",
-                                []
-                            )
-                        )
-
-                        st.session_state.requirements = (
-                            requirements
-                        )
-
-                        st.markdown(
-                            "### 📋 What you may need"
-                        )
-
-                        for requirement in requirements:
-
-                            name = requirement.get(
-                                "name",
-                                "Requirement"
-                            )
-
-                            description = requirement.get(
-                                "description",
-                                ""
-                            )
-
-                            required = requirement.get(
-                                "required",
-                                False
-                            )
-
-                            marker = (
-                                "Required"
-                                if required
-                                else "Optional"
-                            )
-
-                            st.markdown(
-                                f"**{name}** "
-                                f"• {marker}"
-                            )
-
-                            if description:
-
-                                st.caption(
-                                    description
-                                )
-
-                    response = (
-                        f"Your request was identified as "
-                        f"**{service_name}**. "
-                        f"Open the **Application** tab to "
-                        f"continue preparing it."
                     )
 
-                else:
-
-                    response = (
-                        "I couldn't identify the service yet. "
-                        f"{result.get('error', '')}"
+                    st.session_state.requirements = (
+                        requirements
                     )
 
-                    st.error(response)
+                    st.subheader(
+                        "📋 Likely requirements"
+                    )
 
-                st.markdown(response)
+                    for requirement in requirements:
+
+                        name = requirement.get(
+                            "name",
+                            "Requirement"
+                        )
+
+                        description = requirement.get(
+                            "description",
+                            ""
+                        )
+
+                        required = requirement.get(
+                            "required",
+                            False
+                        )
+
+                        label = (
+                            "Required"
+                            if required
+                            else "Optional"
+                        )
+
+                        st.write(
+                            f"**{name}** • {label}"
+                        )
+
+                        if description:
+
+                            st.caption(
+                                description
+                            )
+
+                response = (
+                    f"I identified your request as "
+                    f"**{service_name}**. "
+                    f"Continue in the **Application** tab."
+                )
+
+                st.success(
+                    response
+                )
+
+            else:
+
+                response = (
+                    "I could not identify the service. "
+                    + result.get(
+                        "error",
+                        "Please try again."
+                    )
+                )
+
+                st.error(
+                    response
+                )
 
         st.session_state.messages.append(
             {
@@ -1914,7 +1756,7 @@ with assistant_tab:
 with application_tab:
 
     st.header(
-        "📝 Prepare Application"
+        "📝 Prepare your application"
     )
 
     service = (
@@ -1924,7 +1766,7 @@ with application_tab:
     if not service:
 
         st.info(
-            "Start by describing a government service "
+            "First describe the government service "
             "in the AI Assistant."
         )
 
@@ -1945,27 +1787,34 @@ with application_tab:
             "Unknown"
         )
 
-        st.markdown(
-            f"""
-            <div class="service-card">
-
-                <b>Service</b><br>
-                {service_name}
-
-                <br><br>
-
-                <b>Jurisdiction</b><br>
-                {jurisdiction}
-
-                <br><br>
-
-                <b>Department</b><br>
-                {department}
-
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.subheader(
+            "Selected service"
         )
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+
+            st.metric(
+                "Service",
+                service_name
+            )
+
+        with c2:
+
+            st.metric(
+                "Jurisdiction",
+                jurisdiction
+            )
+
+        with c3:
+
+            st.metric(
+                "Department",
+                department
+            )
+
+        st.divider()
 
         st.subheader(
             "👤 Applicant information"
@@ -1987,10 +1836,6 @@ with application_tab:
             "Address"
         )
 
-        st.subheader(
-            "📄 Service information"
-        )
-
         additional_information = st.text_area(
             "Additional information"
         )
@@ -1999,27 +1844,35 @@ with application_tab:
             "🔎 Official service information"
         )
 
+        st.write(
+            "Enter the official service webpage "
+            "if you want NextStep AI to verify the "
+            "published processing timeline."
+        )
+
         official_url = st.text_input(
             "Official government service URL",
             placeholder="https://..."
         )
 
-        verify_button = st.button(
-            "Verify Official Information",
+        verify = st.button(
+            "Verify Official Timeline",
             use_container_width=True
         )
 
-        if verify_button:
+        if verify:
 
             if not official_url:
 
                 st.warning(
-                    "Enter the official service webpage first."
+                    "Please enter the official service URL."
                 )
 
                 st.session_state.timeline_result = None
 
-            elif not valid_url(official_url):
+            elif not valid_url(
+                official_url
+            ):
 
                 st.error(
                     "Please enter a valid URL."
@@ -2027,7 +1880,9 @@ with application_tab:
 
                 st.session_state.timeline_result = None
 
-            elif not official_domain(official_url):
+            elif not official_domain(
+                official_url
+            ):
 
                 st.warning(
                     "Please use an official government "
@@ -2039,10 +1894,10 @@ with application_tab:
             else:
 
                 with st.spinner(
-                    "Checking the official information..."
+                    "Checking the official webpage..."
                 ):
 
-                    timeline = verify_timeline(
+                    timeline_result = verify_timeline(
                         service_name,
                         jurisdiction,
                         official_url,
@@ -2050,7 +1905,7 @@ with application_tab:
                     )
 
                 st.session_state.timeline_result = (
-                    timeline
+                    timeline_result
                 )
 
         timeline = (
@@ -2072,64 +1927,57 @@ with application_tab:
                 ]
 
                 st.success(
-                    f"Official processing timeline found: "
-                    f"{days} {timeline_type.replace('_', ' ')}."
+                    f"Official processing timeline: "
+                    f"{days} "
+                    f"{timeline_type.replace('_', ' ')}"
                 )
-
-                notes = (
-                    timeline
-                    .get("data", {})
-                    .get("notes", "")
-                )
-
-                if notes:
-
-                    st.info(notes)
 
             else:
 
                 st.info(
-                    "The official webpage did not provide "
-                    "an exact processing timeline."
+                    "An exact processing timeline "
+                    "was not found on the supplied "
+                    "official webpage."
                 )
 
+        st.divider()
+
         st.subheader(
-            "🔐 Review"
+            "🔐 Review and authorize"
         )
 
-        application_information = {
-
-            "name":
-                applicant_name,
-
-            "phone":
-                phone,
-
-            "email":
-                email,
-
-            "address":
-                address,
-
-            "additional_information":
-                additional_information
-        }
-
         with st.expander(
-            "Review applicant information",
+            "Review your information",
             expanded=True
         ):
 
-            st.json(
-                application_information
+            st.write(
+                f"**Name:** {applicant_name}"
             )
 
-        authorize = st.checkbox(
-            "I have reviewed my information and authorize NextStep AI to create and process this application."
+            st.write(
+                f"**Phone:** {phone}"
+            )
+
+            st.write(
+                f"**Email:** {email}"
+            )
+
+            st.write(
+                f"**Address:** {address}"
+            )
+
+            st.write(
+                f"**Additional information:** "
+                f"{additional_information}"
+            )
+
+        authorization = st.checkbox(
+            "I have reviewed the information and authorize NextStep AI to create this application."
         )
 
         submit = st.button(
-            "🚀 Create Application",
+            "🚀 Submit Application",
             type="primary",
             use_container_width=True
         )
@@ -2162,7 +2010,7 @@ with application_tab:
                     "Address is required."
                 )
 
-            if not authorize:
+            if not authorization:
 
                 errors.append(
                     "Please authorize the application."
@@ -2188,12 +2036,10 @@ with application_tab:
                         "verified"
                     ):
 
-                        processing_days = (
-                            int(
-                                timeline[
-                                    "processing_days"
-                                ]
-                            )
+                        processing_days = int(
+                            timeline[
+                                "processing_days"
+                            ]
                         )
 
                         timeline_type = (
@@ -2206,16 +2052,12 @@ with application_tab:
 
                 if processing_days:
 
-                    if (
-                        timeline_type
-                        == "calendar_days"
-                    ):
+                    if timeline_type == "calendar_days":
 
                         deadline = (
                             submission_date
                             + timedelta(
-                                days=
-                                processing_days
+                                days=processing_days
                             )
                         )
 
@@ -2252,8 +2094,23 @@ with application_tab:
                     "applicant_name":
                         applicant_name,
 
-                    "applicant_data":
-                        application_information,
+                    "applicant_data": {
+
+                        "name":
+                            applicant_name,
+
+                        "phone":
+                            phone,
+
+                        "email":
+                            email,
+
+                        "address":
+                            address,
+
+                        "additional_information":
+                            additional_information
+                    },
 
                     "submission_date":
                         submission_date.isoformat(),
@@ -2281,7 +2138,7 @@ with application_tab:
                 }
 
                 with st.spinner(
-                    "Creating your application..."
+                    "Processing application..."
                 ):
 
                     result = submit_application(
@@ -2317,30 +2174,17 @@ with application_tab:
                         )
 
                         st.session_state[
-                            "application_data"
-                        ] = application
-
-                        st.session_state[
                             "last_application_id"
                         ] = application[
                             "application_id"
                         ]
 
-                        st.markdown(
-                            """
-                            <div class="success-card">
-
-                            <h3>
-                            ✅ Application created successfully
-                            </h3>
-
-                            </div>
-                            """,
-                            unsafe_allow_html=True
+                        st.success(
+                            "Application submitted successfully."
                         )
 
-                        st.markdown(
-                            "### 🆔 Your Application ID"
+                        st.subheader(
+                            "🆔 Application ID"
                         )
 
                         st.code(
@@ -2353,20 +2197,19 @@ with application_tab:
                         if expected_completion:
 
                             st.info(
-                                f"Expected completion: "
+                                f"Expected completion date: "
                                 f"**{expected_completion}**"
                             )
 
                         st.success(
-                            "You can now open the "
-                            "**Track Status** tab."
+                            "Open the Track Status tab "
+                            "to follow this application."
                         )
 
                     except sqlite3.IntegrityError:
 
                         st.error(
-                            "Could not save the application. "
-                            "Please try again."
+                            "Unable to save this application."
                         )
 
                 else:
@@ -2374,29 +2217,24 @@ with application_tab:
                     st.error(
                         result.get(
                             "error",
-                            "Application creation failed."
+                            "Application submission failed."
                         )
                     )
 
 
 # ============================================================
-# TRACKING TAB
+# TRACK STATUS
 # ============================================================
 
 with tracking_tab:
 
     st.header(
-        "📊 Track Application"
-    )
-
-    default_id = st.session_state.get(
-        "last_application_id",
-        ""
+        "📊 Track your application"
     )
 
     tracking_id = st.text_input(
         "Application ID",
-        value=default_id,
+        value=st.session_state.last_application_id,
         placeholder="NS-YYYYMMDD-XXXXXXXX"
     )
 
@@ -2408,261 +2246,229 @@ with tracking_tab:
 
     if track:
 
-        application = load_application(
-            tracking_id.strip()
-        )
+        if not tracking_id.strip():
 
-        if not application:
-
-            st.error(
-                "No application was found with that ID."
+            st.warning(
+                "Enter an application ID."
             )
 
         else:
 
-            status_result = fetch_status(
-                application
+            application = load_application(
+                tracking_id.strip()
             )
 
-            if status_result["success"]:
+            if not application:
 
-                current_status = (
-                    status_result["status"]
+                st.error(
+                    "Application not found."
                 )
 
-                if current_status != (
-                    application["status"]
-                ):
+            else:
 
-                    update_application(
-                        application[
-                            "application_id"
-                        ],
-                        status=current_status
+                status_result = fetch_status(
+                    application
+                )
+
+                if status_result["success"]:
+
+                    current_status = (
+                        status_result[
+                            "status"
+                        ]
                     )
 
                     application[
                         "status"
                     ] = current_status
 
-            st.markdown(
-                f"## {application['service_name']}"
-            )
-
-            c1, c2, c3 = st.columns(3)
-
-            with c1:
-
-                st.metric(
-                    "Status",
-                    application["status"]
+                st.success(
+                    "Application found."
                 )
 
-            with c2:
-
-                st.metric(
-                    "Application ID",
+                st.subheader(
                     application[
-                        "application_id"
+                        "service_name"
                     ]
                 )
-
-            with c3:
-
-                st.metric(
-                    "Submitted",
-                    application[
-                        "submission_date"
-                    ]
-                )
-
-            st.divider()
-
-            processing_days = application.get(
-                "official_processing_days",
-                0
-            )
-
-            timeline_type = application.get(
-                "timeline_type",
-                "unknown"
-            )
-
-            if processing_days:
-
-                remaining = (
-                    calculate_remaining_days(
-                        application[
-                            "submission_date"
-                        ],
-                        processing_days,
-                        timeline_type
-                    )
-                )
-
-                submission_date = parse_date(
-                    application[
-                        "submission_date"
-                    ]
-                )
-
-                if timeline_type == "calendar_days":
-
-                    deadline = (
-                        submission_date
-                        + timedelta(
-                            days=
-                            int(
-                                processing_days
-                            )
-                        )
-                    )
-
-                else:
-
-                    deadline = (
-                        add_working_days(
-                            submission_date,
-                            int(
-                                processing_days
-                            )
-                        )
-                    )
 
                 c1, c2, c3 = st.columns(3)
 
                 with c1:
 
-                    st.markdown(
-                        f"""
-                        <div class="timeline-card">
-
-                        <div class="timeline-number">
-                        {processing_days}
-                        </div>
-
-                        <div class="timeline-label">
-                        Official processing days
-                        </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    st.metric(
+                        "Status",
+                        application[
+                            "status"
+                        ]
                     )
 
                 with c2:
 
-                    st.markdown(
-                        f"""
-                        <div class="timeline-card">
-
-                        <div class="timeline-number">
-                        {remaining}
-                        </div>
-
-                        <div class="timeline-label">
-                        Remaining days
-                        </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    st.metric(
+                        "Application ID",
+                        application[
+                            "application_id"
+                        ]
                     )
 
                 with c3:
 
-                    st.markdown(
-                        f"""
-                        <div class="timeline-card">
-
-                        <div class="timeline-number">
-                        {deadline.strftime("%d %b")}
-                        </div>
-
-                        <div class="timeline-label">
-                        Expected completion
-                        </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    st.metric(
+                        "Submitted",
+                        application[
+                            "submission_date"
+                        ]
                     )
 
-                completed = max(
-                    0,
-                    processing_days - remaining
+                st.divider()
+
+                processing_days = application.get(
+                    "official_processing_days",
+                    0
                 )
 
-                progress = (
-                    completed
-                    / processing_days
+                timeline_type = application.get(
+                    "timeline_type",
+                    "unknown"
                 )
 
-                progress = max(
-                    0,
-                    min(
-                        1,
+                if processing_days:
+
+                    remaining = (
+                        calculate_remaining_days(
+                            application[
+                                "submission_date"
+                            ],
+                            processing_days,
+                            timeline_type
+                        )
+                    )
+
+                    submitted = parse_date(
+                        application[
+                            "submission_date"
+                        ]
+                    )
+
+                    if timeline_type == "calendar_days":
+
+                        deadline = (
+                            submitted
+                            + timedelta(
+                                days=processing_days
+                            )
+                        )
+
+                    else:
+
+                        deadline = (
+                            add_working_days(
+                                submitted,
+                                processing_days
+                            )
+                        )
+
+                    c1, c2, c3 = st.columns(3)
+
+                    with c1:
+
+                        st.metric(
+                            "Official processing time",
+                            f"{processing_days} days"
+                        )
+
+                    with c2:
+
+                        st.metric(
+                            "Remaining",
+                            f"{remaining} days"
+                        )
+
+                    with c3:
+
+                        st.metric(
+                            "Expected completion",
+                            deadline.strftime(
+                                "%d %b %Y"
+                            )
+                        )
+
+                    completed = (
+                        processing_days
+                        - remaining
+                    )
+
+                    progress = (
+                        completed
+                        / processing_days
+                    )
+
+                    progress = max(
+                        0,
+                        min(
+                            1,
+                            progress
+                        )
+                    )
+
+                    st.progress(
                         progress
                     )
-                )
 
-                st.progress(
-                    progress
-                )
+                    if remaining == 0:
 
-                if remaining == 0:
+                        st.success(
+                            "The expected processing period "
+                            "has been reached."
+                        )
 
-                    st.success(
-                        "The expected processing period "
-                        "has been reached."
-                    )
+                    else:
+
+                        st.info(
+                            f"{remaining} processing days remaining."
+                        )
 
                 else:
 
                     st.info(
-                        f"{remaining} processing days remaining."
+                        "No verified processing timeline "
+                        "is available for this application."
                     )
 
-            else:
+                st.divider()
 
-                st.info(
-                    "No exact official processing timeline "
-                    "has been recorded for this application."
+                st.subheader(
+                    "Application information"
                 )
-
-            st.divider()
-
-            st.subheader(
-                "Application details"
-            )
-
-            st.write(
-                f"**Jurisdiction:** "
-                f"{application['jurisdiction']}"
-            )
-
-            st.write(
-                f"**Department:** "
-                f"{application.get('department', 'Unknown')}"
-            )
-
-            if application.get(
-                "official_source"
-            ):
 
                 st.write(
-                    f"**Official source:** "
-                    f"{application['official_source']}"
+                    f"**Jurisdiction:** "
+                    f"{application['jurisdiction']}"
                 )
-
-            if application.get(
-                "government_reference"
-            ):
 
                 st.write(
-                    f"**Government reference:** "
-                    f"{application['government_reference']}"
+                    f"**Department:** "
+                    f"{application.get('department', 'Unknown')}"
                 )
+
+                if application.get(
+                    "official_source"
+                ):
+
+                    st.write(
+                        f"**Official source:** "
+                        f"{application['official_source']}"
+                    )
+
+                if application.get(
+                    "government_reference"
+                ):
+
+                    st.write(
+                        f"**Government reference:** "
+                        f"{application['government_reference']}"
+                    )
 
 
 # ============================================================
@@ -2675,29 +2481,26 @@ st.subheader(
     "🗂️ Recent applications"
 )
 
-recent = get_recent_applications(
-    5
-)
+recent = get_recent_applications()
 
 if recent:
 
     for item in recent:
 
-        application_id = item[0]
-        service_name = item[1]
-        status = item[2]
-        submitted = item[3]
-
         with st.expander(
-            f"{service_name} • {application_id}"
+            f"{item[1]} • {item[0]}"
         ):
 
             st.write(
-                f"**Status:** {status}"
+                f"**Application ID:** {item[0]}"
             )
 
             st.write(
-                f"**Submitted:** {submitted}"
+                f"**Status:** {item[2]}"
+            )
+
+            st.write(
+                f"**Submitted:** {item[3]}"
             )
 
 else:
@@ -2714,11 +2517,9 @@ else:
 st.divider()
 
 st.caption(
-    "🤖 NextStep AI • Intelligent public-service workflow"
+    "🤖 NextStep AI"
 )
 
 st.caption(
-    "AI identifies services and assists with preparation. "
-    "External government submission/status requires an "
-    "authorized government integration."
+    "Discover services • Prepare applications • Track progress"
 )
