@@ -2,10 +2,7 @@ import streamlit as st
 import requests
 import json
 import re
-import time
 import sqlite3
-import os
-import uuid
 import base64
 
 from datetime import datetime, date, timedelta
@@ -80,30 +77,46 @@ BLOCKING_BARRIERS = {
 
 
 # ============================================================
-# SESSION STATE
+# DEFAULT SESSION STATE
 # ============================================================
 
 DEFAULT_STATE = {
+    "conversation_id": None,
+
     "typed_service_request": "",
     "voice_text": "",
+
     "service_identified": False,
     "identified_service": None,
+
     "application_decision": None,
     "application_mode": False,
+
     "requirements": None,
     "timeline": None,
+
     "official_url": "",
     "official_page_text": "",
+
     "barrier_check": None,
     "submission_capability": None,
+
     "application_id": None,
     "submission_result": None,
+
+    "pending_application_payload": None,
+    "ready_to_submit": False,
+
     "last_ai_response": "",
+
+    "language": "English",
 }
 
 
 for key, value in DEFAULT_STATE.items():
+
     if key not in st.session_state:
+
         st.session_state[key] = value
 
 
@@ -112,19 +125,36 @@ for key, value in DEFAULT_STATE.items():
 # ============================================================
 
 def get_secret(name, default=""):
+
     try:
-        value = st.secrets.get(name, default)
+
+        value = st.secrets.get(
+            name,
+            default,
+        )
+
         if value is None:
             return default
+
         return str(value).strip()
+
     except Exception:
+
         return default
 
 
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = get_secret("OPENROUTER_MODEL", DEFAULT_MODEL)
+OPENROUTER_API_KEY = get_secret(
+    "OPENROUTER_API_KEY"
+)
 
-SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
+OPENROUTER_MODEL = get_secret(
+    "OPENROUTER_MODEL",
+    DEFAULT_MODEL,
+)
+
+SARVAM_API_KEY = get_secret(
+    "SARVAM_API_KEY"
+)
 
 GOVERNMENT_SUBMISSION_URL = get_secret(
     "GOVERNMENT_SUBMISSION_URL"
@@ -134,7 +164,10 @@ GOVERNMENT_STATUS_URL = get_secret(
     "GOVERNMENT_STATUS_URL"
 )
 
-HOLIDAYS_RAW = get_secret("HOLIDAYS", "[]")
+HOLIDAYS_RAW = get_secret(
+    "HOLIDAYS",
+    "[]",
+)
 
 
 # ============================================================
@@ -142,33 +175,17 @@ HOLIDAYS_RAW = get_secret("HOLIDAYS", "[]")
 # ============================================================
 
 def load_integration_registry():
-    """
-    Loads optional authorized government integrations.
 
-    Expected secrets format:
-
-    GOVERNMENT_INTEGRATIONS = '''
-    [
-      {
-        "service_name": "Example Service",
-        "endpoint": "https://authorized.example.gov.in/api/apply",
-        "method": "POST"
-      }
-    ]
-    '''
-
-    The registry is optional.
-
-    If it is empty, NextStep AI will NOT claim that it can
-    automatically submit to a government service.
-    """
-
-    raw = get_secret("GOVERNMENT_INTEGRATIONS", "")
+    raw = get_secret(
+        "GOVERNMENT_INTEGRATIONS",
+        "",
+    )
 
     if not raw:
         return []
 
     try:
+
         parsed = json.loads(raw)
 
         if isinstance(parsed, list):
@@ -177,10 +194,799 @@ def load_integration_registry():
         return []
 
     except Exception:
+
         return []
 
 
-GOVERNMENT_INTEGRATIONS = load_integration_registry()
+GOVERNMENT_INTEGRATIONS = (
+    load_integration_registry()
+)
+
+
+# ============================================================
+# CSS
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+
+    .main-title {
+        font-size: 42px;
+        font-weight: 800;
+        margin-bottom: 0;
+    }
+
+    .subtitle {
+        font-size: 17px;
+        opacity: 0.75;
+        margin-top: 4px;
+        margin-bottom: 24px;
+    }
+
+    .service-box {
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 16px;
+    }
+
+    .success-box {
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(50,180,100,0.35);
+        background: rgba(50,180,100,0.08);
+    }
+
+    .warning-box {
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(220,170,50,0.35);
+        background: rgba(220,170,50,0.08);
+    }
+
+    .danger-box {
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(220,70,70,0.35);
+        background: rgba(220,70,70,0.08);
+    }
+
+    .info-box {
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(80,130,220,0.35);
+        background: rgba(80,130,220,0.08);
+    }
+
+    .small-muted {
+        font-size: 13px;
+        opacity: 0.7;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+def get_db():
+
+    connection = sqlite3.connect(
+        DATABASE_FILE,
+        check_same_thread=False,
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    return connection
+
+
+def init_database():
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    # --------------------------------------------------------
+    # APPLICATIONS
+    # --------------------------------------------------------
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS applications (
+
+            application_id TEXT PRIMARY KEY,
+
+            service_name TEXT,
+            category TEXT,
+            jurisdiction TEXT,
+            department TEXT,
+
+            applicant_name TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            additional_information TEXT,
+
+            official_url TEXT,
+
+            submission_date TEXT,
+
+            status TEXT,
+
+            processing_days INTEGER,
+            processing_type TEXT,
+            expected_completion_date TEXT,
+
+            timeline_source TEXT,
+            timeline_verified INTEGER,
+
+            ai_submission_supported INTEGER,
+            barrier_detected INTEGER,
+            barrier_details TEXT,
+
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    # --------------------------------------------------------
+    # CONVERSATIONS
+    # --------------------------------------------------------
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversations (
+
+            conversation_id TEXT PRIMARY KEY,
+
+            title TEXT NOT NULL,
+
+            state_json TEXT,
+
+            created_at TEXT,
+
+            updated_at TEXT
+        )
+        """
+    )
+
+    # --------------------------------------------------------
+    # CONVERSATION MESSAGES
+    # --------------------------------------------------------
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversation_messages (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            conversation_id TEXT NOT NULL,
+
+            role TEXT NOT NULL,
+
+            content TEXT NOT NULL,
+
+            created_at TEXT
+        )
+        """
+    )
+
+    connection.commit()
+    connection.close()
+
+
+init_database()
+
+
+# ============================================================
+# CONVERSATION STATE
+# ============================================================
+
+CONVERSATION_STATE_KEYS = [
+    "typed_service_request",
+    "voice_text",
+    "service_identified",
+    "identified_service",
+    "application_decision",
+    "application_mode",
+    "requirements",
+    "timeline",
+    "official_url",
+    "official_page_text",
+    "barrier_check",
+    "submission_capability",
+    "application_id",
+    "submission_result",
+    "pending_application_payload",
+    "ready_to_submit",
+    "last_ai_response",
+    "language",
+]
+
+
+def get_conversation_state():
+
+    state = {}
+
+    for key in CONVERSATION_STATE_KEYS:
+
+        value = st.session_state.get(
+            key
+        )
+
+        try:
+
+            json.dumps(
+                value,
+                ensure_ascii=False,
+            )
+
+            state[key] = value
+
+        except Exception:
+
+            state[key] = None
+
+    return state
+
+
+def restore_conversation_state(
+    state,
+):
+
+    if not isinstance(
+        state,
+        dict,
+    ):
+        return
+
+    for key in CONVERSATION_STATE_KEYS:
+
+        if key in state:
+
+            st.session_state[key] = state[key]
+
+
+def reset_conversation_state():
+
+    for key, value in DEFAULT_STATE.items():
+
+        st.session_state[key] = value
+
+
+def create_conversation(
+    title="New Conversation",
+):
+
+    conversation_id = str(
+        __import__("uuid").uuid4()
+    )
+
+    now = datetime.now().isoformat()
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO conversations (
+            conversation_id,
+            title,
+            state_json,
+            created_at,
+            updated_at
+        )
+
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            conversation_id,
+            title,
+            json.dumps(
+                {},
+                ensure_ascii=False,
+            ),
+            now,
+            now,
+        ),
+    )
+
+    connection.commit()
+    connection.close()
+
+    return conversation_id
+
+
+def save_conversation_state():
+
+    conversation_id = st.session_state.get(
+        "conversation_id"
+    )
+
+    if not conversation_id:
+        return
+
+    state = get_conversation_state()
+
+    now = datetime.now().isoformat()
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        UPDATE conversations
+
+        SET
+            state_json = ?,
+            updated_at = ?
+
+        WHERE conversation_id = ?
+        """,
+        (
+            json.dumps(
+                state,
+                ensure_ascii=False,
+            ),
+            now,
+            conversation_id,
+        ),
+    )
+
+    connection.commit()
+    connection.close()
+
+
+def update_conversation_title(
+    title,
+):
+
+    conversation_id = st.session_state.get(
+        "conversation_id"
+    )
+
+    if not conversation_id:
+        return
+
+    title = str(title).strip()
+
+    if not title:
+        return
+
+    if len(title) > 60:
+        title = title[:57] + "..."
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        UPDATE conversations
+
+        SET
+            title = ?,
+            updated_at = ?
+
+        WHERE conversation_id = ?
+        """,
+        (
+            title,
+            datetime.now().isoformat(),
+            conversation_id,
+        ),
+    )
+
+    connection.commit()
+    connection.close()
+
+
+def add_conversation_message(
+    role,
+    content,
+):
+
+    conversation_id = st.session_state.get(
+        "conversation_id"
+    )
+
+    if not conversation_id:
+        return
+
+    if not content:
+        return
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO conversation_messages (
+            conversation_id,
+            role,
+            content,
+            created_at
+        )
+
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            conversation_id,
+            role,
+            str(content),
+            datetime.now().isoformat(),
+        ),
+    )
+
+    cursor.execute(
+        """
+        UPDATE conversations
+
+        SET updated_at = ?
+
+        WHERE conversation_id = ?
+        """,
+        (
+            datetime.now().isoformat(),
+            conversation_id,
+        ),
+    )
+
+    connection.commit()
+    connection.close()
+
+
+def get_conversations():
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            conversation_id,
+            title,
+            created_at,
+            updated_at
+
+        FROM conversations
+
+        ORDER BY updated_at DESC
+        """
+    )
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    return rows
+
+
+def load_conversation(
+    conversation_id,
+):
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT *
+
+        FROM conversations
+
+        WHERE conversation_id = ?
+        """,
+        (
+            conversation_id,
+        ),
+    )
+
+    row = cursor.fetchone()
+
+    connection.close()
+
+    if not row:
+        return False
+
+    try:
+
+        state = json.loads(
+            row["state_json"]
+            or "{}"
+        )
+
+    except Exception:
+
+        state = {}
+
+    reset_conversation_state()
+
+    st.session_state[
+        "conversation_id"
+    ] = conversation_id
+
+    restore_conversation_state(
+        state
+    )
+
+    return True
+
+
+def delete_conversation(
+    conversation_id,
+):
+
+    connection = get_db()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        DELETE FROM conversation_messages
+
+        WHERE conversation_id = ?
+        """,
+        (
+            conversation_id,
+        ),
+    )
+
+    cursor.execute(
+        """
+        DELETE FROM conversations
+
+        WHERE conversation_id = ?
+        """,
+        (
+            conversation_id,
+        ),
+    )
+
+    connection.commit()
+    connection.close()
+
+
+def ensure_current_conversation():
+
+    if st.session_state.get(
+        "conversation_id"
+    ):
+        return
+
+    conversation_id = create_conversation()
+
+    st.session_state[
+        "conversation_id"
+    ] = conversation_id
+
+    save_conversation_state()
+
+
+ensure_current_conversation()
+
+
+# ============================================================
+# CONVERSATION SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.markdown(
+        "## 🧭 NextStep AI"
+    )
+
+    st.caption(
+        "AI-powered public-service assistant"
+    )
+
+    # --------------------------------------------------------
+    # NEW CONVERSATION
+    # --------------------------------------------------------
+
+    if st.button(
+        "➕ New Conversation",
+        use_container_width=True,
+        type="primary",
+    ):
+
+        save_conversation_state()
+
+        new_id = create_conversation()
+
+        reset_conversation_state()
+
+        st.session_state[
+            "conversation_id"
+        ] = new_id
+
+        st.rerun()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # CONVERSATION HISTORY
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 🕘 Previous Conversations"
+    )
+
+    conversations = get_conversations()
+
+    current_id = st.session_state.get(
+        "conversation_id"
+    )
+
+    if not conversations:
+
+        st.caption(
+            "No previous conversations yet."
+        )
+
+    else:
+
+        for conversation in conversations:
+
+            conversation_id = conversation[
+                "conversation_id"
+            ]
+
+            title = conversation[
+                "title"
+            ] or "New Conversation"
+
+            if len(title) > 38:
+                title = title[:35] + "..."
+
+            is_current = (
+                conversation_id
+                == current_id
+            )
+
+            button_label = (
+                f"🟢 {title}"
+                if is_current
+                else f"💬 {title}"
+            )
+
+            if st.button(
+                button_label,
+                key=(
+                    "open_conversation_"
+                    + conversation_id
+                ),
+                use_container_width=True,
+            ):
+
+                if conversation_id != current_id:
+
+                    save_conversation_state()
+
+                    load_conversation(
+                        conversation_id
+                    )
+
+                    st.rerun()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # DELETE CURRENT CONVERSATION
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 🗑️ Conversation"
+    )
+
+    if st.button(
+        "🗑️ Delete Current Conversation",
+        use_container_width=True,
+    ):
+
+        current_conversation = (
+            st.session_state.get(
+                "conversation_id"
+            )
+        )
+
+        if current_conversation:
+
+            delete_conversation(
+                current_conversation
+            )
+
+        new_id = create_conversation()
+
+        reset_conversation_state()
+
+        st.session_state[
+            "conversation_id"
+        ] = new_id
+
+        st.rerun()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # LANGUAGE
+    # --------------------------------------------------------
+
+    current_language = st.session_state.get(
+        "language",
+        "English",
+    )
+
+    language_index = 0
+
+    if current_language in LANGUAGE_CODES:
+
+        language_index = list(
+            LANGUAGE_CODES.keys()
+        ).index(
+            current_language
+        )
+
+    language = st.selectbox(
+        "🌐 Language",
+        list(LANGUAGE_CODES.keys()),
+        index=language_index,
+    )
+
+    st.session_state[
+        "language"
+    ] = language
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # HOW IT WORKS
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### How it works"
+    )
+
+    st.markdown(
+        """
+        **1. Discover**  
+        Describe the government service.
+
+        **2. Verify**  
+        NextStep AI checks the official process.
+
+        **3. Safety check**  
+        CAPTCHA and other human-only barriers are detected.
+
+        **4. Prepare**  
+        Required information is collected only when needed.
+
+        **5. Submit**  
+        Submission happens only through an authorized integration.
+
+        **6. Track**  
+        Application status and processing timeline are shown.
+        """
+    )
+
+    st.divider()
+
+    st.caption(
+        "NextStep AI never bypasses CAPTCHA, OTP, biometric "
+        "verification, or other human-verification controls."
+    )
 
 
 # ============================================================
@@ -266,83 +1072,21 @@ st.markdown(
 
 
 # ============================================================
-# DATABASE
-# ============================================================
-
-def get_db():
-    connection = sqlite3.connect(
-        DATABASE_FILE,
-        check_same_thread=False,
-    )
-
-    connection.row_factory = sqlite3.Row
-
-    return connection
-
-
-def init_database():
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS applications (
-
-            application_id TEXT PRIMARY KEY,
-
-            service_name TEXT,
-            category TEXT,
-            jurisdiction TEXT,
-            department TEXT,
-
-            applicant_name TEXT,
-            phone TEXT,
-            email TEXT,
-            address TEXT,
-            additional_information TEXT,
-
-            official_url TEXT,
-
-            submission_date TEXT,
-
-            status TEXT,
-
-            processing_days INTEGER,
-            processing_type TEXT,
-            expected_completion_date TEXT,
-
-            timeline_source TEXT,
-            timeline_verified INTEGER,
-
-            ai_submission_supported INTEGER,
-            barrier_detected INTEGER,
-            barrier_details TEXT,
-
-            created_at TEXT,
-            updated_at TEXT
-        )
-        """
-    )
-
-    connection.commit()
-    connection.close()
-
-
-init_database()
-
-
-# ============================================================
 # DATE / WORKING DAY HELPERS
 # ============================================================
 
 def load_holidays():
 
     try:
-        holidays = json.loads(HOLIDAYS_RAW)
 
-        if not isinstance(holidays, list):
+        holidays = json.loads(
+            HOLIDAYS_RAW
+        )
+
+        if not isinstance(
+            holidays,
+            list,
+        ):
             return set()
 
         return {
@@ -352,6 +1096,7 @@ def load_holidays():
         }
 
     except Exception:
+
         return set()
 
 
@@ -369,7 +1114,10 @@ def is_working_day(day):
     return True
 
 
-def add_working_days(start_date, number_of_days):
+def add_working_days(
+    start_date,
+    number_of_days,
+):
 
     current = start_date
     added = 0
@@ -379,6 +1127,7 @@ def add_working_days(start_date, number_of_days):
         current += timedelta(days=1)
 
         if is_working_day(current):
+
             added += 1
 
     return current
@@ -394,6 +1143,7 @@ def add_processing_days(
         return None
 
     if processing_type == "working_days":
+
         return add_working_days(
             submission_date,
             processing_days,
@@ -427,11 +1177,14 @@ def calculate_remaining_days(
             current += timedelta(days=1)
 
             if is_working_day(current):
+
                 count += 1
 
         return count
 
-    return (expected_date - today).days
+    return (
+        expected_date - today
+    ).days
 
 
 # ============================================================
@@ -448,7 +1201,9 @@ def openrouter_chat(
         return None
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": (
+            f"Bearer {OPENROUTER_API_KEY}"
+        ),
         "Content-Type": "application/json",
     }
 
@@ -480,31 +1235,57 @@ def openrouter_chat(
 
         data = response.json()
 
-        choices = data.get("choices", [])
+        choices = data.get(
+            "choices",
+            [],
+        )
 
         if not choices:
             return None
 
-        message = choices[0].get("message", {})
+        message = choices[0].get(
+            "message",
+            {},
+        )
 
-        content = message.get("content", "")
+        content = message.get(
+            "content",
+            "",
+        )
 
-        if isinstance(content, list):
+        if isinstance(
+            content,
+            list,
+        ):
 
             text_parts = []
 
             for item in content:
 
-                if isinstance(item, dict):
+                if isinstance(
+                    item,
+                    dict,
+                ):
+
                     text_parts.append(
-                        str(item.get("text", ""))
+                        str(
+                            item.get(
+                                "text",
+                                "",
+                            )
+                        )
                     )
 
-            content = "".join(text_parts)
+            content = "".join(
+                text_parts
+            )
 
-        return str(content).strip()
+        return str(
+            content
+        ).strip()
 
     except Exception:
+
         return None
 
 
@@ -520,8 +1301,11 @@ def extract_json(text):
     text = text.strip()
 
     try:
+
         return json.loads(text)
+
     except Exception:
+
         pass
 
     match = re.search(
@@ -533,10 +1317,13 @@ def extract_json(text):
     if match:
 
         try:
+
             return json.loads(
                 match.group(0)
             )
+
         except Exception:
+
             pass
 
     return None
@@ -559,6 +1346,7 @@ def is_official_url(url):
             "http",
             "https",
         }:
+
             return False
 
         hostname = (
@@ -577,6 +1365,7 @@ def is_official_url(url):
         return allowed
 
     except Exception:
+
         return False
 
 
@@ -585,12 +1374,21 @@ def normalize_url(url):
     if not url:
         return ""
 
-    url = str(url).strip()
+    url = str(
+        url
+    ).strip()
 
     if not url.startswith(
-        ("http://", "https://")
+        (
+            "http://",
+            "https://",
+        )
     ):
-        url = "https://" + url
+
+        url = (
+            "https://"
+            + url
+        )
 
     return url
 
@@ -601,13 +1399,21 @@ def normalize_url(url):
 
 def read_official_page(url):
 
-    url = normalize_url(url)
+    url = normalize_url(
+        url
+    )
 
-    if not is_official_url(url):
+    if not is_official_url(
+        url
+    ):
+
         return {
             "success": False,
             "text": "",
-            "error": "URL is not a verified government-domain URL.",
+            "error": (
+                "URL is not a verified "
+                "government-domain URL."
+            ),
         }
 
     try:
@@ -630,7 +1436,10 @@ def read_official_page(url):
 
         final_url = response.url
 
-        if not is_official_url(final_url):
+        if not is_official_url(
+            final_url
+        ):
+
             return {
                 "success": False,
                 "text": "",
@@ -695,7 +1504,9 @@ def read_official_page(url):
 # AI SERVICE IDENTIFICATION
 # ============================================================
 
-def identify_service(user_request):
+def identify_service(
+    user_request
+):
 
     system_prompt = """
 You are the service-identification engine for NextStep AI.
@@ -740,19 +1551,29 @@ Rules:
         temperature=0.0,
     )
 
-    data = extract_json(result)
+    data = extract_json(
+        result
+    )
 
     if not data:
         return None
 
     try:
+
         data["confidence"] = float(
-            data.get("confidence", 0)
+            data.get(
+                "confidence",
+                0,
+            )
         )
+
     except Exception:
+
         data["confidence"] = 0
 
-    data["official_portal_url"] = normalize_url(
+    data[
+        "official_portal_url"
+    ] = normalize_url(
         data.get(
             "official_portal_url",
             "",
@@ -766,7 +1587,9 @@ Rules:
 # REQUIREMENTS
 # ============================================================
 
-def generate_requirements(service):
+def generate_requirements(
+    service
+):
 
     system_prompt = """
 You are the requirements engine for NextStep AI.
@@ -811,9 +1634,12 @@ Rules:
         temperature=0.1,
     )
 
-    data = extract_json(result)
+    data = extract_json(
+        result
+    )
 
     if not data:
+
         return {
             "requirements": [],
             "information_needed": [],
@@ -913,7 +1739,11 @@ Important:
     prompt = f"""
 SERVICE:
 
-{json.dumps(service, indent=2, ensure_ascii=False)}
+{json.dumps(
+    service,
+    indent=2,
+    ensure_ascii=False,
+)}
 
 OFFICIAL PAGE TEXT:
 
@@ -926,7 +1756,9 @@ OFFICIAL PAGE TEXT:
         temperature=0.0,
     )
 
-    data = extract_json(result)
+    data = extract_json(
+        result
+    )
 
     if not data:
 
@@ -957,7 +1789,10 @@ OFFICIAL PAGE TEXT:
             continue
 
         barrier_type = str(
-            barrier.get("type", "")
+            barrier.get(
+                "type",
+                "",
+            )
         ).lower().replace(
             "-",
             "_",
@@ -967,10 +1802,17 @@ OFFICIAL PAGE TEXT:
         )
 
         if (
-            barrier_type in BLOCKING_BARRIERS
-            and barrier.get("present") is True
+            barrier_type
+            in BLOCKING_BARRIERS
+            and barrier.get(
+                "present"
+            )
+            is True
         ):
-            data["ai_submission_supported"] = False
+
+            data[
+                "ai_submission_supported"
+            ] = False
 
     return data
 
@@ -980,11 +1822,13 @@ OFFICIAL PAGE TEXT:
 # ============================================================
 
 def find_authorized_integration(
-    service_name,
+    service_name
 ):
 
     service_name_lower = (
-        str(service_name or "")
+        str(
+            service_name or ""
+        )
         .strip()
         .lower()
     )
@@ -992,7 +1836,9 @@ def find_authorized_integration(
     if not service_name_lower:
         return None
 
-    for integration in GOVERNMENT_INTEGRATIONS:
+    for integration in (
+        GOVERNMENT_INTEGRATIONS
+    ):
 
         if not isinstance(
             integration,
@@ -1011,6 +1857,7 @@ def find_authorized_integration(
             registered_name
             == service_name_lower
         ):
+
             return integration
 
     return None
@@ -1026,8 +1873,10 @@ def check_submission_capability(
         "",
     )
 
-    integration = find_authorized_integration(
-        service_name
+    integration = (
+        find_authorized_integration(
+            service_name
+        )
     )
 
     if not barrier_check:
@@ -1062,11 +1911,9 @@ def check_submission_capability(
 
         return {
             "supported": False,
-            "reason": (
-                barrier_check.get(
-                    "reason",
-                    "A human verification step is required.",
-                )
+            "reason": barrier_check.get(
+                "reason",
+                "A human verification step is required.",
             ),
             "integration": integration,
         }
@@ -1171,7 +2018,10 @@ Rules:
     prompt = f"""
 SERVICE:
 
-{json.dumps(service, ensure_ascii=False)}
+{json.dumps(
+    service,
+    ensure_ascii=False,
+)}
 
 OFFICIAL PAGE:
 
@@ -1184,9 +2034,12 @@ OFFICIAL PAGE:
         temperature=0.0,
     )
 
-    data = extract_json(result)
+    data = extract_json(
+        result
+    )
 
     if not data:
+
         return {
             "verified": False,
             "processing_days": None,
@@ -1216,7 +2069,9 @@ def speech_to_text(
     )
 
     headers = {
-        "api-subscription-key": SARVAM_API_KEY,
+        "api-subscription-key": (
+            SARVAM_API_KEY
+        ),
     }
 
     files = {
@@ -1254,6 +2109,7 @@ def speech_to_text(
         ).strip()
 
     except Exception:
+
         return None
 
 
@@ -1278,8 +2134,12 @@ def text_to_speech(
     )
 
     headers = {
-        "api-subscription-key": SARVAM_API_KEY,
-        "Content-Type": "application/json",
+        "api-subscription-key": (
+            SARVAM_API_KEY
+        ),
+        "Content-Type": (
+            "application/json"
+        ),
     }
 
     payload = {
@@ -1304,12 +2164,17 @@ def text_to_speech(
         data = response.json()
 
         audio_b64 = (
-            data.get("audios", [None])[0]
+            data.get(
+                "audios",
+                [None],
+            )[0]
             if isinstance(
                 data.get("audios"),
                 list,
             )
-            else data.get("audio")
+            else data.get(
+                "audio"
+            )
         )
 
         if not audio_b64:
@@ -1320,6 +2185,7 @@ def text_to_speech(
         )
 
     except Exception:
+
         return None
 
 
@@ -1371,19 +2237,26 @@ def submit_application(
     ).upper()
 
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": (
+            "application/json"
+        )
     }
 
-    extra_headers = integration.get(
-        "headers",
-        {},
+    extra_headers = (
+        integration.get(
+            "headers",
+            {},
+        )
     )
 
     if isinstance(
         extra_headers,
         dict,
     ):
-        headers.update(extra_headers)
+
+        headers.update(
+            extra_headers
+        )
 
     try:
 
@@ -1474,7 +2347,9 @@ def submit_application(
 # LOCAL APPLICATION RECORD
 # ============================================================
 
-def save_application(record):
+def save_application(
+    record
+):
 
     connection = get_db()
 
@@ -1531,29 +2406,74 @@ def save_application(record):
         )
         """,
         (
-            record.get("application_id"),
-            record.get("service_name"),
-            record.get("category"),
-            record.get("jurisdiction"),
-            record.get("department"),
+            record.get(
+                "application_id"
+            ),
 
-            record.get("applicant_name"),
-            record.get("phone"),
-            record.get("email"),
-            record.get("address"),
-            record.get("additional_information"),
+            record.get(
+                "service_name"
+            ),
 
-            record.get("official_url"),
+            record.get(
+                "category"
+            ),
 
-            record.get("submission_date"),
+            record.get(
+                "jurisdiction"
+            ),
 
-            record.get("status"),
+            record.get(
+                "department"
+            ),
 
-            record.get("processing_days"),
-            record.get("processing_type"),
-            record.get("expected_completion_date"),
+            record.get(
+                "applicant_name"
+            ),
 
-            record.get("timeline_source"),
+            record.get(
+                "phone"
+            ),
+
+            record.get(
+                "email"
+            ),
+
+            record.get(
+                "address"
+            ),
+
+            record.get(
+                "additional_information"
+            ),
+
+            record.get(
+                "official_url"
+            ),
+
+            record.get(
+                "submission_date"
+            ),
+
+            record.get(
+                "status"
+            ),
+
+            record.get(
+                "processing_days"
+            ),
+
+            record.get(
+                "processing_type"
+            ),
+
+            record.get(
+                "expected_completion_date"
+            ),
+
+            record.get(
+                "timeline_source"
+            ),
+
             1 if record.get(
                 "timeline_verified"
             ) else 0,
@@ -1574,8 +2494,13 @@ def save_application(record):
                 ensure_ascii=False,
             ),
 
-            record.get("created_at"),
-            record.get("updated_at"),
+            record.get(
+                "created_at"
+            ),
+
+            record.get(
+                "updated_at"
+            ),
         ),
     )
 
@@ -1587,7 +2512,9 @@ def save_application(record):
 # STATUS
 # ============================================================
 
-def fetch_status(application_id):
+def fetch_status(
+    application_id
+):
 
     if GOVERNMENT_STATUS_URL:
 
@@ -1596,7 +2523,9 @@ def fetch_status(application_id):
             response = requests.post(
                 GOVERNMENT_STATUS_URL,
                 json={
-                    "application_id": application_id
+                    "application_id": (
+                        application_id
+                    )
                 },
                 timeout=REQUEST_TIMEOUT,
             )
@@ -1634,10 +2563,14 @@ def fetch_status(application_id):
     cursor.execute(
         """
         SELECT *
+
         FROM applications
+
         WHERE application_id = ?
         """,
-        (application_id,),
+        (
+            application_id,
+        ),
     )
 
     row = cursor.fetchone()
@@ -1665,58 +2598,6 @@ def fetch_status(application_id):
         ),
         "raw": dict(row),
     }
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-with st.sidebar:
-
-    st.markdown("## 🧭 NextStep AI")
-
-    st.caption(
-        "AI-powered public-service assistant"
-    )
-
-    language = st.selectbox(
-        "🌐 Language",
-        list(LANGUAGE_CODES.keys()),
-        index=0,
-    )
-
-    st.divider()
-
-    st.markdown("### How it works")
-
-    st.markdown(
-        """
-        **1. Discover**  
-        Describe the government service.
-
-        **2. Verify**  
-        NextStep AI checks the official process.
-
-        **3. Safety check**  
-        CAPTCHA and other human-only barriers are detected.
-
-        **4. Prepare**  
-        Required information is collected only when needed.
-
-        **5. Submit**  
-        Submission happens only through an authorized integration.
-
-        **6. Track**  
-        Application status and processing timeline are shown.
-        """
-    )
-
-    st.divider()
-
-    st.caption(
-        "NextStep AI never bypasses CAPTCHA, OTP, biometric "
-        "verification, or other human-verification controls."
-    )
 
 
 # ============================================================
@@ -1756,7 +2637,9 @@ with assistant_tab:
 
     if voice_audio is not None:
 
-        audio_bytes = voice_audio.getvalue()
+        audio_bytes = (
+            voice_audio.getvalue()
+        )
 
         with st.spinner(
             "🎧 Understanding your voice..."
@@ -1898,6 +2781,81 @@ with assistant_tab:
                     "submission_result"
                 ] = None
 
+                st.session_state[
+                    "pending_application_payload"
+                ] = None
+
+                st.session_state[
+                    "ready_to_submit"
+                ] = False
+
+                # ------------------------------------------------
+                # SAVE CONVERSATION
+                # ------------------------------------------------
+
+                if (
+                    st.session_state.get(
+                        "conversation_id"
+                    )
+                ):
+
+                    existing_request = (
+                        st.session_state.get(
+                            "_request_logged",
+                            "",
+                        )
+                    )
+
+                    if (
+                        existing_request
+                        != user_request.strip()
+                    ):
+
+                        add_conversation_message(
+                            "user",
+                            user_request.strip(),
+                        )
+
+                        title = (
+                            user_request.strip()
+                        )
+
+                        if len(title) > 60:
+
+                            title = (
+                                title[:57]
+                                + "..."
+                            )
+
+                        update_conversation_title(
+                            title
+                        )
+
+                        st.session_state[
+                            "_request_logged"
+                        ] = user_request.strip()
+
+                    assistant_summary = (
+                        "Service identified: "
+                        + str(
+                            result.get(
+                                "service_name",
+                                "Unknown",
+                            )
+                        )
+                    )
+
+                    add_conversation_message(
+                        "assistant",
+                        assistant_summary,
+                    )
+
+                    st.session_state[
+                        "last_ai_response"
+                    ] = assistant_summary
+
+                    save_conversation_state()
+
                 st.rerun()
 
 
@@ -1981,8 +2939,11 @@ with assistant_tab:
                 "",
             )
 
-            if official_url and is_official_url(
+            if (
                 official_url
+                and is_official_url(
+                    official_url
+                )
             ):
 
                 st.markdown(
@@ -2006,8 +2967,11 @@ with assistant_tab:
             # VERIFY OFFICIAL PAGE
             # ------------------------------------------------
 
-            if official_url and is_official_url(
+            if (
                 official_url
+                and is_official_url(
+                    official_url
+                )
             ):
 
                 if st.button(
@@ -2019,17 +2983,21 @@ with assistant_tab:
                         "🔍 Checking the official application process..."
                     ):
 
-                        page_result = read_official_page(
-                            official_url
+                        page_result = (
+                            read_official_page(
+                                official_url
+                            )
                         )
 
                         if page_result.get(
                             "success"
                         ):
 
-                            page_text = page_result.get(
-                                "text",
-                                "",
+                            page_text = (
+                                page_result.get(
+                                    "text",
+                                    "",
+                                )
                             )
 
                             barrier_result = (
@@ -2069,6 +3037,8 @@ with assistant_tab:
                                 "timeline"
                             ] = timeline
 
+                            save_conversation_state()
+
                             st.success(
                                 "Official application process checked."
                             )
@@ -2092,12 +3062,16 @@ with assistant_tab:
             # BARRIER RESULT
             # ------------------------------------------------
 
-            barrier_check = st.session_state.get(
-                "barrier_check"
+            barrier_check = (
+                st.session_state.get(
+                    "barrier_check"
+                )
             )
 
-            capability = st.session_state.get(
-                "submission_capability"
+            capability = (
+                st.session_state.get(
+                    "submission_capability"
+                )
             )
 
             if barrier_check:
@@ -2108,9 +3082,11 @@ with assistant_tab:
                     "### 🛡️ AI Submission Safety Check"
                 )
 
-                barriers = barrier_check.get(
-                    "barriers",
-                    [],
+                barriers = (
+                    barrier_check.get(
+                        "barriers",
+                        [],
+                    )
                 )
 
                 blocking_barriers = []
@@ -2144,14 +3120,18 @@ with assistant_tab:
 
                     for barrier in blocking_barriers:
 
-                        barrier_type = barrier.get(
-                            "type",
-                            "human verification",
+                        barrier_type = (
+                            barrier.get(
+                                "type",
+                                "human verification",
+                            )
                         )
 
-                        evidence = barrier.get(
-                            "evidence",
-                            "",
+                        evidence = (
+                            barrier.get(
+                                "evidence",
+                                "",
+                            )
                         )
 
                         st.markdown(
@@ -2160,6 +3140,7 @@ with assistant_tab:
                         )
 
                         if evidence:
+
                             st.caption(
                                 evidence
                             )
@@ -2170,8 +3151,11 @@ with assistant_tab:
                         "government portal manually."
                     )
 
-                elif capability and capability.get(
-                    "supported"
+                elif (
+                    capability
+                    and capability.get(
+                        "supported"
+                    )
                 ):
 
                     st.success(
@@ -2194,13 +3178,11 @@ with assistant_tab:
                         "The submission process could not be verified."
                     )
 
-                # --------------------------------------------
-                # HUMAN STEPS
-                # --------------------------------------------
-
-                human_steps = barrier_check.get(
-                    "human_steps_required",
-                    [],
+                human_steps = (
+                    barrier_check.get(
+                        "human_steps_required",
+                        [],
+                    )
                 )
 
                 if human_steps:
@@ -2231,7 +3213,9 @@ with assistant_tab:
                 "application when an authorized integration allows it."
             )
 
-            decision_col1, decision_col2 = st.columns(2)
+            decision_col1, decision_col2 = (
+                st.columns(2)
+            )
 
             with decision_col1:
 
@@ -2255,8 +3239,11 @@ with assistant_tab:
                         "First run the AI Submission Compatibility Check."
                     )
 
-                elif capability and capability.get(
-                    "supported"
+                elif (
+                    capability
+                    and capability.get(
+                        "supported"
+                    )
                 ):
 
                     st.session_state[
@@ -2266,6 +3253,13 @@ with assistant_tab:
                     st.session_state[
                         "application_mode"
                     ] = True
+
+                    add_conversation_message(
+                        "user",
+                        "Yes, apply for me",
+                    )
+
+                    save_conversation_state()
 
                     st.rerun()
 
@@ -2294,15 +3288,25 @@ with assistant_tab:
                     "application_mode"
                 ] = False
 
+                add_conversation_message(
+                    "user",
+                    "No, only show requirements",
+                )
+
+                save_conversation_state()
+
                 st.rerun()
 
             # ------------------------------------------------
             # REQUIREMENTS FOR NO MODE
             # ------------------------------------------------
 
-            if st.session_state.get(
-                "application_decision"
-            ) == "no":
+            if (
+                st.session_state.get(
+                    "application_decision"
+                )
+                == "no"
+            ):
 
                 st.divider()
 
@@ -2328,9 +3332,13 @@ with assistant_tab:
                             "requirements"
                         ] = requirements
 
-                requirements = st.session_state.get(
-                    "requirements",
-                    {},
+                        save_conversation_state()
+
+                requirements = (
+                    st.session_state.get(
+                        "requirements",
+                        {},
+                    )
                 )
 
                 for item in requirements.get(
@@ -2368,9 +3376,11 @@ with assistant_tab:
                                 )
                             )
 
-                information_needed = requirements.get(
-                    "information_needed",
-                    [],
+                information_needed = (
+                    requirements.get(
+                        "information_needed",
+                        [],
+                    )
                 )
 
                 if information_needed:
@@ -2385,9 +3395,11 @@ with assistant_tab:
                             f"- {item}"
                         )
 
-                warnings = requirements.get(
-                    "warnings",
-                    [],
+                warnings = (
+                    requirements.get(
+                        "warnings",
+                        [],
+                    )
                 )
 
                 if warnings:
@@ -2439,16 +3451,22 @@ with application_tab:
 
     else:
 
-        service = st.session_state.get(
-            "identified_service"
+        service = (
+            st.session_state.get(
+                "identified_service"
+            )
         )
 
-        capability = st.session_state.get(
-            "submission_capability"
+        capability = (
+            st.session_state.get(
+                "submission_capability"
+            )
         )
 
-        barrier_check = st.session_state.get(
-            "barrier_check"
+        barrier_check = (
+            st.session_state.get(
+                "barrier_check"
+            )
         )
 
         if not service or not capability:
@@ -2471,6 +3489,8 @@ with application_tab:
             st.session_state[
                 "application_mode"
             ] = False
+
+            save_conversation_state()
 
         else:
 
@@ -2501,9 +3521,13 @@ with application_tab:
                         service
                     )
 
-            requirements = st.session_state.get(
-                "requirements",
-                {},
+                    save_conversation_state()
+
+            requirements = (
+                st.session_state.get(
+                    "requirements",
+                    {},
+                )
             )
 
             for item in requirements.get(
@@ -2555,8 +3579,10 @@ with application_tab:
                     "Address"
                 )
 
-                additional_information = st.text_area(
-                    "Additional information"
+                additional_information = (
+                    st.text_area(
+                        "Additional information"
+                    )
                 )
 
                 st.markdown(
@@ -2578,16 +3604,19 @@ with application_tab:
                 errors = []
 
                 if not applicant_name.strip():
+
                     errors.append(
                         "Full name is required."
                     )
 
                 if not phone.strip():
+
                     errors.append(
                         "Phone number is required."
                     )
 
                 if not authorization:
+
                     errors.append(
                         "You must explicitly authorize submission."
                     )
@@ -2595,44 +3624,59 @@ with application_tab:
                 if errors:
 
                     for error in errors:
-                        st.error(error)
+
+                        st.error(
+                            error
+                        )
 
                 else:
 
                     st.session_state[
                         "pending_application_payload"
                     ] = {
+
                         "service_name": service.get(
                             "service_name",
                             "",
                         ),
+
                         "category": service.get(
                             "service_category",
                             "",
                         ),
+
                         "jurisdiction": service.get(
                             "jurisdiction",
                             "",
                         ),
+
                         "department": service.get(
                             "department",
                             "",
                         ),
+
                         "applicant": {
+
                             "name": applicant_name.strip(),
+
                             "phone": phone.strip(),
+
                             "email": email.strip(),
+
                             "address": address.strip(),
+
                             "additional_information": (
                                 additional_information.strip()
                             ),
                         },
+
                         "official_portal_url": (
                             st.session_state.get(
                                 "official_url",
                                 "",
                             )
                         ),
+
                         "submission_timestamp": (
                             datetime.now().isoformat()
                         ),
@@ -2642,8 +3686,9 @@ with application_tab:
                         "ready_to_submit"
                     ] = True
 
-                    st.rerun()
+                    save_conversation_state()
 
+                    st.rerun()
 
             # ------------------------------------------------
             # FINAL REVIEW
@@ -2660,17 +3705,23 @@ with application_tab:
                     "## 🔎 Final Review"
                 )
 
-                payload = st.session_state.get(
-                    "pending_application_payload",
-                    {},
+                payload = (
+                    st.session_state.get(
+                        "pending_application_payload",
+                        {},
+                    )
                 )
 
-                applicant = payload.get(
-                    "applicant",
-                    {},
+                applicant = (
+                    payload.get(
+                        "applicant",
+                        {},
+                    )
                 )
 
-                review_col1, review_col2 = st.columns(2)
+                review_col1, review_col2 = (
+                    st.columns(2)
+                )
 
                 with review_col1:
 
@@ -2707,7 +3758,9 @@ with application_tab:
                     "the government system controls the application."
                 )
 
-                confirm_col1, confirm_col2 = st.columns(2)
+                confirm_col1, confirm_col2 = (
+                    st.columns(2)
+                )
 
                 with confirm_col1:
 
@@ -2729,6 +3782,8 @@ with application_tab:
                     st.session_state[
                         "ready_to_submit"
                     ] = False
+
+                    save_conversation_state()
 
                     st.rerun()
 
@@ -2767,17 +3822,23 @@ with application_tab:
 
                         submission_date = date.today()
 
-                        timeline = st.session_state.get(
-                            "timeline",
-                            {},
+                        timeline = (
+                            st.session_state.get(
+                                "timeline",
+                                {},
+                            )
                         )
 
-                        processing_days = timeline.get(
-                            "processing_days"
+                        processing_days = (
+                            timeline.get(
+                                "processing_days"
+                            )
                         )
 
-                        processing_type = timeline.get(
-                            "processing_type"
+                        processing_type = (
+                            timeline.get(
+                                "processing_type"
+                            )
                         )
 
                         expected_completion = (
@@ -2794,100 +3855,124 @@ with application_tab:
                             else {}
                         )
 
-                        now = datetime.now().isoformat()
+                        now = (
+                            datetime.now().isoformat()
+                        )
 
                         record = {
-                            "application_id": application_id,
 
-                            "service_name": service.get(
-                                "service_name",
-                                "",
-                            ),
+                            "application_id":
+                                application_id,
 
-                            "category": service.get(
-                                "service_category",
-                                "",
-                            ),
+                            "service_name":
+                                service.get(
+                                    "service_name",
+                                    "",
+                                ),
 
-                            "jurisdiction": service.get(
-                                "jurisdiction",
-                                "",
-                            ),
+                            "category":
+                                service.get(
+                                    "service_category",
+                                    "",
+                                ),
 
-                            "department": service.get(
-                                "department",
-                                "",
-                            ),
+                            "jurisdiction":
+                                service.get(
+                                    "jurisdiction",
+                                    "",
+                                ),
 
-                            "applicant_name": applicant.get(
-                                "name",
-                                "",
-                            ),
+                            "department":
+                                service.get(
+                                    "department",
+                                    "",
+                                ),
 
-                            "phone": applicant.get(
-                                "phone",
-                                "",
-                            ),
+                            "applicant_name":
+                                applicant.get(
+                                    "name",
+                                    "",
+                                ),
 
-                            "email": applicant.get(
-                                "email",
-                                "",
-                            ),
+                            "phone":
+                                applicant.get(
+                                    "phone",
+                                    "",
+                                ),
 
-                            "address": applicant.get(
-                                "address",
-                                "",
-                            ),
+                            "email":
+                                applicant.get(
+                                    "email",
+                                    "",
+                                ),
 
-                            "additional_information": applicant.get(
-                                "additional_information",
-                                "",
-                            ),
+                            "address":
+                                applicant.get(
+                                    "address",
+                                    "",
+                                ),
 
-                            "official_url": payload.get(
-                                "official_portal_url",
-                                "",
-                            ),
+                            "additional_information":
+                                applicant.get(
+                                    "additional_information",
+                                    "",
+                                ),
 
-                            "submission_date": submission_date.isoformat(),
-
-                            "status": "Submitted",
-
-                            "processing_days": processing_days,
-
-                            "processing_type": processing_type,
-
-                            "expected_completion_date": (
-                                expected_completion.isoformat()
-                                if expected_completion
-                                else None
-                            ),
-
-                            "timeline_source": (
+                            "official_url":
                                 payload.get(
                                     "official_portal_url",
                                     "",
-                                )
-                            ),
+                                ),
 
-                            "timeline_verified": timeline.get(
-                                "verified",
-                                False,
-                            ),
+                            "submission_date":
+                                submission_date.isoformat(),
 
-                            "ai_submission_supported": True,
+                            "status":
+                                "Submitted",
 
-                            "barrier_detected": bool(
-                                barrier_details.get(
-                                    "barriers"
-                                )
-                            ),
+                            "processing_days":
+                                processing_days,
 
-                            "barrier_details": barrier_details,
+                            "processing_type":
+                                processing_type,
 
-                            "created_at": now,
+                            "expected_completion_date":
+                                (
+                                    expected_completion.isoformat()
+                                    if expected_completion
+                                    else None
+                                ),
 
-                            "updated_at": now,
+                            "timeline_source":
+                                payload.get(
+                                    "official_portal_url",
+                                    "",
+                                ),
+
+                            "timeline_verified":
+                                timeline.get(
+                                    "verified",
+                                    False,
+                                ),
+
+                            "ai_submission_supported":
+                                True,
+
+                            "barrier_detected":
+                                bool(
+                                    barrier_details.get(
+                                        "barriers"
+                                    )
+                                ),
+
+                            "barrier_details":
+                                barrier_details,
+
+                            "created_at":
+                                now,
+
+                            "updated_at":
+                                now,
                         }
 
                         save_application(
@@ -2898,12 +3983,35 @@ with application_tab:
                             "ready_to_submit"
                         ] = False
 
+                        st.session_state[
+                            "last_ai_response"
+                        ] = (
+                            "Application submitted successfully. "
+                            "Application ID: "
+                            + str(
+                                application_id
+                            )
+                        )
+
+                        add_conversation_message(
+                            "assistant",
+                            (
+                                "Application submitted successfully. "
+                                "Application ID: "
+                                + str(
+                                    application_id
+                                )
+                            ),
+                        )
+
+                        save_conversation_state()
+
                         st.success(
                             "✅ Application submitted successfully through the configured authorized government integration."
                         )
 
                         st.markdown(
-                            f"### Application ID"
+                            "### Application ID"
                         )
 
                         st.code(
@@ -3004,9 +4112,11 @@ with status_tab:
 
             else:
 
-                status = status_result.get(
-                    "status",
-                    "Unknown",
+                status = (
+                    status_result.get(
+                        "status",
+                        "Unknown",
+                    )
                 )
 
                 st.success(
@@ -3023,21 +4133,29 @@ with status_tab:
                         )
                     )
 
-                raw = status_result.get(
-                    "raw",
-                    {},
+                raw = (
+                    status_result.get(
+                        "raw",
+                        {},
+                    )
                 )
 
-                processing_days = raw.get(
-                    "processing_days"
+                processing_days = (
+                    raw.get(
+                        "processing_days"
+                    )
                 )
 
-                processing_type = raw.get(
-                    "processing_type"
+                processing_type = (
+                    raw.get(
+                        "processing_type"
+                    )
                 )
 
-                expected_date_raw = raw.get(
-                    "expected_completion_date"
+                expected_date_raw = (
+                    raw.get(
+                        "expected_completion_date"
+                    )
                 )
 
                 if expected_date_raw:
@@ -3073,6 +4191,7 @@ with status_tab:
                         )
 
                     except Exception:
+
                         pass
 
                 if (
