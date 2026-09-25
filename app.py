@@ -2,7 +2,9 @@ import streamlit as st
 import requests
 import json
 import re
+import time
 import sqlite3
+import os
 import uuid
 import base64
 
@@ -97,10 +99,6 @@ DEFAULT_STATE = {
     "application_id": None,
     "submission_result": None,
     "last_ai_response": "",
-    "conversation_id": None,
-    "language": "English",
-    "pending_application_payload": None,
-    "ready_to_submit": False,
 }
 
 
@@ -110,215 +108,23 @@ for key, value in DEFAULT_STATE.items():
 
 
 # ============================================================
-# GOOGLE AUTHENTICATION
-# ============================================================
-
-def authentication_available():
-    """
-    Safely checks whether Streamlit authentication is configured.
-    """
-
-    try:
-        return hasattr(st, "user") and hasattr(
-            st.user,
-            "is_logged_in",
-        )
-    except Exception:
-        return False
-
-
-def is_logged_in():
-    """
-    Returns True only when a Google/OIDC user is authenticated.
-    """
-
-    try:
-        return bool(
-            authentication_available()
-            and st.user.is_logged_in
-        )
-    except Exception:
-        return False
-
-
-def get_google_user():
-    """
-    Reads the authenticated identity from Streamlit's OIDC user.
-
-    We use the email as the unique account identifier because
-    conversation history must be isolated between accounts.
-    """
-
-    if not is_logged_in():
-        return {
-            "email": "",
-            "name": "Guest",
-            "picture": "",
-        }
-
-    try:
-        email = str(
-            getattr(
-                st.user,
-                "email",
-                "",
-            )
-            or ""
-        ).strip().lower()
-
-        name = str(
-            getattr(
-                st.user,
-                "name",
-                "",
-            )
-            or ""
-        ).strip()
-
-        picture = str(
-            getattr(
-                st.user,
-                "picture",
-                "",
-            )
-            or ""
-        ).strip()
-
-        return {
-            "email": email,
-            "name": name or "Google User",
-            "picture": picture,
-        }
-
-    except Exception:
-        return {
-            "email": "",
-            "name": "Google User",
-            "picture": "",
-        }
-
-
-GOOGLE_USER = get_google_user()
-CURRENT_USER_EMAIL = GOOGLE_USER.get("email", "")
-CURRENT_USER_NAME = GOOGLE_USER.get("name", "")
-CURRENT_USER_PICTURE = GOOGLE_USER.get("picture", "")
-
-
-# ============================================================
-# LOGIN SCREEN
-# ============================================================
-
-if not is_logged_in():
-
-    st.markdown(
-        """
-        <div style="
-            max-width:760px;
-            margin:90px auto;
-            text-align:center;
-        ">
-            <div style="
-                font-size:64px;
-                margin-bottom:10px;
-            ">
-                🧭
-            </div>
-
-            <div style="
-                font-size:46px;
-                font-weight:800;
-            ">
-                NextStep AI
-            </div>
-
-            <div style="
-                font-size:19px;
-                opacity:0.72;
-                margin-top:8px;
-            ">
-                Discover • Prepare • Submit • Track
-            </div>
-
-            <div style="
-                margin-top:30px;
-                font-size:17px;
-                opacity:0.8;
-            ">
-                Sign in with your Google account to continue.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        "<div style='max-width:420px;margin:auto;'>",
-        unsafe_allow_html=True,
-    )
-
-    if authentication_available():
-
-        if st.button(
-            "🔐 Continue with Google",
-            type="primary",
-            use_container_width=True,
-        ):
-            st.login()
-
-    else:
-
-        st.error(
-            "Google authentication is not configured yet."
-        )
-
-        st.info(
-            "Add the [auth] configuration to "
-            ".streamlit/secrets.toml and install Authlib."
-        )
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.stop()
-
-
-# ============================================================
 # SECRETS HELPERS
 # ============================================================
 
 def get_secret(name, default=""):
-
     try:
-
-        value = st.secrets.get(
-            name,
-            default,
-        )
-
+        value = st.secrets.get(name, default)
         if value is None:
             return default
-
         return str(value).strip()
-
     except Exception:
-
         return default
 
 
-OPENROUTER_API_KEY = get_secret(
-    "OPENROUTER_API_KEY"
-)
+OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = get_secret("OPENROUTER_MODEL", DEFAULT_MODEL)
 
-OPENROUTER_MODEL = get_secret(
-    "OPENROUTER_MODEL",
-    DEFAULT_MODEL,
-)
-
-SARVAM_API_KEY = get_secret(
-    "SARVAM_API_KEY"
-)
+SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
 
 GOVERNMENT_SUBMISSION_URL = get_secret(
     "GOVERNMENT_SUBMISSION_URL"
@@ -328,10 +134,7 @@ GOVERNMENT_STATUS_URL = get_secret(
     "GOVERNMENT_STATUS_URL"
 )
 
-HOLIDAYS_RAW = get_secret(
-    "HOLIDAYS",
-    "[]",
-)
+HOLIDAYS_RAW = get_secret("HOLIDAYS", "[]")
 
 
 # ============================================================
@@ -339,17 +142,33 @@ HOLIDAYS_RAW = get_secret(
 # ============================================================
 
 def load_integration_registry():
+    """
+    Loads optional authorized government integrations.
 
-    raw = get_secret(
-        "GOVERNMENT_INTEGRATIONS",
-        "",
-    )
+    Expected secrets format:
+
+    GOVERNMENT_INTEGRATIONS = '''
+    [
+      {
+        "service_name": "Example Service",
+        "endpoint": "https://authorized.example.gov.in/api/apply",
+        "method": "POST"
+      }
+    ]
+    '''
+
+    The registry is optional.
+
+    If it is empty, NextStep AI will NOT claim that it can
+    automatically submit to a government service.
+    """
+
+    raw = get_secret("GOVERNMENT_INTEGRATIONS", "")
 
     if not raw:
         return []
 
     try:
-
         parsed = json.loads(raw)
 
         if isinstance(parsed, list):
@@ -358,13 +177,10 @@ def load_integration_registry():
         return []
 
     except Exception:
-
         return []
 
 
-GOVERNMENT_INTEGRATIONS = (
-    load_integration_registry()
-)
+GOVERNMENT_INTEGRATIONS = load_integration_registry()
 
 
 # ============================================================
@@ -435,11 +251,25 @@ st.markdown(
 
 
 # ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    '<div class="main-title">🧭 NextStep AI</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="subtitle">Discover • Prepare • Submit • Track</div>',
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
 # DATABASE
 # ============================================================
 
 def get_db():
-
     connection = sqlite3.connect(
         DATABASE_FILE,
         check_same_thread=False,
@@ -455,10 +285,6 @@ def init_database():
     connection = get_db()
 
     cursor = connection.cursor()
-
-    # --------------------------------------------------------
-    # APPLICATIONS
-    # --------------------------------------------------------
 
     cursor.execute(
         """
@@ -500,509 +326,11 @@ def init_database():
         """
     )
 
-    # --------------------------------------------------------
-    # CONVERSATIONS
-    # --------------------------------------------------------
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversations (
-
-            conversation_id TEXT PRIMARY KEY,
-
-            user_email TEXT NOT NULL,
-
-            title TEXT,
-
-            created_at TEXT,
-
-            updated_at TEXT,
-
-            state_json TEXT
-        )
-        """
-    )
-
-    # --------------------------------------------------------
-    # CONVERSATION MESSAGES
-    # --------------------------------------------------------
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_messages (
-
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-            conversation_id TEXT NOT NULL,
-
-            user_email TEXT NOT NULL,
-
-            role TEXT,
-
-            content TEXT,
-
-            created_at TEXT
-        )
-        """
-    )
-
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS
-        idx_conversation_user
-        ON conversations(user_email)
-        """
-    )
-
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS
-        idx_message_conversation
-        ON conversation_messages(
-            conversation_id
-        )
-        """
-    )
-
     connection.commit()
     connection.close()
 
 
 init_database()
-
-
-# ============================================================
-# CONVERSATION STATE
-# ============================================================
-
-CONVERSATION_STATE_KEYS = [
-    "typed_service_request",
-    "voice_text",
-    "service_identified",
-    "identified_service",
-    "application_decision",
-    "application_mode",
-    "requirements",
-    "timeline",
-    "official_url",
-    "official_page_text",
-    "barrier_check",
-    "submission_capability",
-    "application_id",
-    "submission_result",
-    "last_ai_response",
-    "language",
-]
-
-
-def reset_conversation_state():
-
-    for key, default_value in DEFAULT_STATE.items():
-
-        if key == "conversation_id":
-            continue
-
-        if key == "language":
-            st.session_state[key] = "English"
-        else:
-            st.session_state[key] = default_value
-
-
-def conversation_state_snapshot():
-
-    snapshot = {}
-
-    for key in CONVERSATION_STATE_KEYS:
-
-        snapshot[key] = st.session_state.get(
-            key
-        )
-
-    return snapshot
-
-
-def make_conversation_title(text):
-
-    cleaned = re.sub(
-        r"\s+",
-        " ",
-        str(text or ""),
-    ).strip()
-
-    if not cleaned:
-        return "New conversation"
-
-    if len(cleaned) > 42:
-        return cleaned[:42].rstrip() + "..."
-
-    return cleaned
-
-
-def create_conversation(
-    title="New conversation",
-):
-
-    if not CURRENT_USER_EMAIL:
-        return None
-
-    conversation_id = str(
-        uuid.uuid4()
-    )
-
-    now = datetime.now().isoformat()
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO conversations (
-            conversation_id,
-            user_email,
-            title,
-            created_at,
-            updated_at,
-            state_json
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            conversation_id,
-            CURRENT_USER_EMAIL,
-            title,
-            now,
-            now,
-            json.dumps(
-                {},
-                ensure_ascii=False,
-            ),
-        ),
-    )
-
-    connection.commit()
-    connection.close()
-
-    return conversation_id
-
-
-def ensure_conversation():
-
-    existing_id = st.session_state.get(
-        "conversation_id"
-    )
-
-    if existing_id:
-
-        connection = get_db()
-
-        cursor = connection.cursor()
-
-        cursor.execute(
-            """
-            SELECT conversation_id
-            FROM conversations
-            WHERE conversation_id = ?
-            AND user_email = ?
-            """,
-            (
-                existing_id,
-                CURRENT_USER_EMAIL,
-            ),
-        )
-
-        row = cursor.fetchone()
-
-        connection.close()
-
-        if row:
-            return existing_id
-
-    conversation_id = create_conversation()
-
-    st.session_state[
-        "conversation_id"
-    ] = conversation_id
-
-    return conversation_id
-
-
-def save_conversation_state():
-
-    conversation_id = ensure_conversation()
-
-    if not conversation_id:
-        return
-
-    state = conversation_state_snapshot()
-
-    now = datetime.now().isoformat()
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        UPDATE conversations
-        SET state_json = ?,
-            updated_at = ?
-        WHERE conversation_id = ?
-        AND user_email = ?
-        """,
-        (
-            json.dumps(
-                state,
-                ensure_ascii=False,
-            ),
-            now,
-            conversation_id,
-            CURRENT_USER_EMAIL,
-        ),
-    )
-
-    connection.commit()
-    connection.close()
-
-
-def add_conversation_message(
-    role,
-    content,
-):
-
-    if not content:
-        return
-
-    conversation_id = ensure_conversation()
-
-    if not conversation_id:
-        return
-
-    now = datetime.now().isoformat()
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO conversation_messages (
-            conversation_id,
-            user_email,
-            role,
-            content,
-            created_at
-        )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            conversation_id,
-            CURRENT_USER_EMAIL,
-            role,
-            str(content),
-            now,
-        ),
-    )
-
-    # Give the conversation a useful title
-    if role == "user":
-
-        cursor.execute(
-            """
-            SELECT title
-            FROM conversations
-            WHERE conversation_id = ?
-            AND user_email = ?
-            """,
-            (
-                conversation_id,
-                CURRENT_USER_EMAIL,
-            ),
-        )
-
-        row = cursor.fetchone()
-
-        if row and (
-            not row["title"]
-            or row["title"] == "New conversation"
-        ):
-
-            cursor.execute(
-                """
-                UPDATE conversations
-                SET title = ?,
-                    updated_at = ?
-                WHERE conversation_id = ?
-                AND user_email = ?
-                """,
-                (
-                    make_conversation_title(
-                        content
-                    ),
-                    now,
-                    conversation_id,
-                    CURRENT_USER_EMAIL,
-                ),
-            )
-
-    else:
-
-        cursor.execute(
-            """
-            UPDATE conversations
-            SET updated_at = ?
-            WHERE conversation_id = ?
-            AND user_email = ?
-            """,
-            (
-                now,
-                conversation_id,
-                CURRENT_USER_EMAIL,
-            ),
-        )
-
-    connection.commit()
-    connection.close()
-
-    save_conversation_state()
-
-
-def get_conversations():
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-            conversation_id,
-            title,
-            created_at,
-            updated_at
-        FROM conversations
-        WHERE user_email = ?
-        ORDER BY updated_at DESC
-        """,
-        (
-            CURRENT_USER_EMAIL,
-        ),
-    )
-
-    rows = cursor.fetchall()
-
-    connection.close()
-
-    return rows
-
-
-def load_conversation(
-    conversation_id,
-):
-
-    if not conversation_id:
-        return False
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        SELECT *
-        FROM conversations
-        WHERE conversation_id = ?
-        AND user_email = ?
-        """,
-        (
-            conversation_id,
-            CURRENT_USER_EMAIL,
-        ),
-    )
-
-    row = cursor.fetchone()
-
-    connection.close()
-
-    if not row:
-        return False
-
-    reset_conversation_state()
-
-    st.session_state[
-        "conversation_id"
-    ] = conversation_id
-
-    try:
-
-        state = json.loads(
-            row["state_json"]
-            or "{}"
-        )
-
-    except Exception:
-
-        state = {}
-
-    if isinstance(state, dict):
-
-        for key in CONVERSATION_STATE_KEYS:
-
-            if key in state:
-
-                st.session_state[key] = (
-                    state[key]
-                )
-
-    # Never restore sensitive unfinished form data.
-    st.session_state[
-        "pending_application_payload"
-    ] = None
-
-    st.session_state[
-        "ready_to_submit"
-    ] = False
-
-    return True
-
-
-def delete_conversation(
-    conversation_id,
-):
-
-    if not conversation_id:
-        return
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        DELETE FROM conversation_messages
-        WHERE conversation_id = ?
-        AND user_email = ?
-        """,
-        (
-            conversation_id,
-            CURRENT_USER_EMAIL,
-        ),
-    )
-
-    cursor.execute(
-        """
-        DELETE FROM conversations
-        WHERE conversation_id = ?
-        AND user_email = ?
-        """,
-        (
-            conversation_id,
-            CURRENT_USER_EMAIL,
-        ),
-    )
-
-    connection.commit()
-    connection.close()
 
 
 # ============================================================
@@ -1012,15 +340,9 @@ def delete_conversation(
 def load_holidays():
 
     try:
+        holidays = json.loads(HOLIDAYS_RAW)
 
-        holidays = json.loads(
-            HOLIDAYS_RAW
-        )
-
-        if not isinstance(
-            holidays,
-            list,
-        ):
+        if not isinstance(holidays, list):
             return set()
 
         return {
@@ -1030,7 +352,6 @@ def load_holidays():
         }
 
     except Exception:
-
         return set()
 
 
@@ -1048,10 +369,7 @@ def is_working_day(day):
     return True
 
 
-def add_working_days(
-    start_date,
-    number_of_days,
-):
+def add_working_days(start_date, number_of_days):
 
     current = start_date
     added = 0
@@ -1076,7 +394,6 @@ def add_processing_days(
         return None
 
     if processing_type == "working_days":
-
         return add_working_days(
             submission_date,
             processing_days,
@@ -1114,9 +431,7 @@ def calculate_remaining_days(
 
         return count
 
-    return (
-        expected_date - today
-    ).days
+    return (expected_date - today).days
 
 
 # ============================================================
@@ -1133,9 +448,7 @@ def openrouter_chat(
         return None
 
     headers = {
-        "Authorization": (
-            f"Bearer {OPENROUTER_API_KEY}"
-        ),
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
 
@@ -1167,57 +480,31 @@ def openrouter_chat(
 
         data = response.json()
 
-        choices = data.get(
-            "choices",
-            [],
-        )
+        choices = data.get("choices", [])
 
         if not choices:
             return None
 
-        message = choices[0].get(
-            "message",
-            {},
-        )
+        message = choices[0].get("message", {})
 
-        content = message.get(
-            "content",
-            "",
-        )
+        content = message.get("content", "")
 
-        if isinstance(
-            content,
-            list,
-        ):
+        if isinstance(content, list):
 
             text_parts = []
 
             for item in content:
 
-                if isinstance(
-                    item,
-                    dict,
-                ):
-
+                if isinstance(item, dict):
                     text_parts.append(
-                        str(
-                            item.get(
-                                "text",
-                                "",
-                            )
-                        )
+                        str(item.get("text", ""))
                     )
 
-            content = "".join(
-                text_parts
-            )
+            content = "".join(text_parts)
 
-        return str(
-            content
-        ).strip()
+        return str(content).strip()
 
     except Exception:
-
         return None
 
 
@@ -1234,7 +521,6 @@ def extract_json(text):
 
     try:
         return json.loads(text)
-
     except Exception:
         pass
 
@@ -1247,11 +533,9 @@ def extract_json(text):
     if match:
 
         try:
-
             return json.loads(
                 match.group(0)
             )
-
         except Exception:
             pass
 
@@ -1293,7 +577,6 @@ def is_official_url(url):
         return allowed
 
     except Exception:
-
         return False
 
 
@@ -1302,21 +585,12 @@ def normalize_url(url):
     if not url:
         return ""
 
-    url = str(
-        url
-    ).strip()
+    url = str(url).strip()
 
     if not url.startswith(
-        (
-            "http://",
-            "https://",
-        )
+        ("http://", "https://")
     ):
-
-        url = (
-            "https://"
-            + url
-        )
+        url = "https://" + url
 
     return url
 
@@ -1327,21 +601,13 @@ def normalize_url(url):
 
 def read_official_page(url):
 
-    url = normalize_url(
-        url
-    )
+    url = normalize_url(url)
 
-    if not is_official_url(
-        url
-    ):
-
+    if not is_official_url(url):
         return {
             "success": False,
             "text": "",
-            "error": (
-                "URL is not a verified "
-                "government-domain URL."
-            ),
+            "error": "URL is not a verified government-domain URL.",
         }
 
     try:
@@ -1364,10 +630,7 @@ def read_official_page(url):
 
         final_url = response.url
 
-        if not is_official_url(
-            final_url
-        ):
-
+        if not is_official_url(final_url):
             return {
                 "success": False,
                 "text": "",
@@ -1432,9 +695,7 @@ def read_official_page(url):
 # AI SERVICE IDENTIFICATION
 # ============================================================
 
-def identify_service(
-    user_request,
-):
+def identify_service(user_request):
 
     system_prompt = """
 You are the service-identification engine for NextStep AI.
@@ -1479,29 +740,19 @@ Rules:
         temperature=0.0,
     )
 
-    data = extract_json(
-        result
-    )
+    data = extract_json(result)
 
     if not data:
         return None
 
     try:
-
         data["confidence"] = float(
-            data.get(
-                "confidence",
-                0,
-            )
+            data.get("confidence", 0)
         )
-
     except Exception:
-
         data["confidence"] = 0
 
-    data[
-        "official_portal_url"
-    ] = normalize_url(
+    data["official_portal_url"] = normalize_url(
         data.get(
             "official_portal_url",
             "",
@@ -1515,9 +766,7 @@ Rules:
 # REQUIREMENTS
 # ============================================================
 
-def generate_requirements(
-    service,
-):
+def generate_requirements(service):
 
     system_prompt = """
 You are the requirements engine for NextStep AI.
@@ -1562,12 +811,9 @@ Rules:
         temperature=0.1,
     )
 
-    data = extract_json(
-        result
-    )
+    data = extract_json(result)
 
     if not data:
-
         return {
             "requirements": [],
             "information_needed": [],
@@ -1667,11 +913,7 @@ Important:
     prompt = f"""
 SERVICE:
 
-{json.dumps(
-    service,
-    indent=2,
-    ensure_ascii=False,
-)}
+{json.dumps(service, indent=2, ensure_ascii=False)}
 
 OFFICIAL PAGE TEXT:
 
@@ -1684,9 +926,7 @@ OFFICIAL PAGE TEXT:
         temperature=0.0,
     )
 
-    data = extract_json(
-        result
-    )
+    data = extract_json(result)
 
     if not data:
 
@@ -1717,10 +957,7 @@ OFFICIAL PAGE TEXT:
             continue
 
         barrier_type = str(
-            barrier.get(
-                "type",
-                "",
-            )
+            barrier.get("type", "")
         ).lower().replace(
             "-",
             "_",
@@ -1730,17 +967,10 @@ OFFICIAL PAGE TEXT:
         )
 
         if (
-            barrier_type
-            in BLOCKING_BARRIERS
-            and barrier.get(
-                "present"
-            )
-            is True
+            barrier_type in BLOCKING_BARRIERS
+            and barrier.get("present") is True
         ):
-
-            data[
-                "ai_submission_supported"
-            ] = False
+            data["ai_submission_supported"] = False
 
     return data
 
@@ -1753,16 +983,16 @@ def find_authorized_integration(
     service_name,
 ):
 
-    service_name_lower = str(
-        service_name or ""
-    ).strip().lower()
+    service_name_lower = (
+        str(service_name or "")
+        .strip()
+        .lower()
+    )
 
     if not service_name_lower:
         return None
 
-    for integration in (
-        GOVERNMENT_INTEGRATIONS
-    ):
+    for integration in GOVERNMENT_INTEGRATIONS:
 
         if not isinstance(
             integration,
@@ -1781,7 +1011,6 @@ def find_authorized_integration(
             registered_name
             == service_name_lower
         ):
-
             return integration
 
     return None
@@ -1797,10 +1026,8 @@ def check_submission_capability(
         "",
     )
 
-    integration = (
-        find_authorized_integration(
-            service_name
-        )
+    integration = find_authorized_integration(
+        service_name
     )
 
     if not barrier_check:
@@ -1835,9 +1062,11 @@ def check_submission_capability(
 
         return {
             "supported": False,
-            "reason": barrier_check.get(
-                "reason",
-                "A human verification step is required.",
+            "reason": (
+                barrier_check.get(
+                    "reason",
+                    "A human verification step is required.",
+                )
             ),
             "integration": integration,
         }
@@ -1942,10 +1171,7 @@ Rules:
     prompt = f"""
 SERVICE:
 
-{json.dumps(
-    service,
-    ensure_ascii=False,
-)}
+{json.dumps(service, ensure_ascii=False)}
 
 OFFICIAL PAGE:
 
@@ -1958,12 +1184,9 @@ OFFICIAL PAGE:
         temperature=0.0,
     )
 
-    data = extract_json(
-        result
-    )
+    data = extract_json(result)
 
     if not data:
-
         return {
             "verified": False,
             "processing_days": None,
@@ -2031,7 +1254,6 @@ def speech_to_text(
         ).strip()
 
     except Exception:
-
         return None
 
 
@@ -2082,10 +1304,7 @@ def text_to_speech(
         data = response.json()
 
         audio_b64 = (
-            data.get(
-                "audios",
-                [None],
-            )[0]
+            data.get("audios", [None])[0]
             if isinstance(
                 data.get("audios"),
                 list,
@@ -2101,7 +1320,6 @@ def text_to_speech(
         )
 
     except Exception:
-
         return None
 
 
@@ -2165,10 +1383,7 @@ def submit_application(
         extra_headers,
         dict,
     ):
-
-        headers.update(
-            extra_headers
-        )
+        headers.update(extra_headers)
 
     try:
 
@@ -2372,9 +1587,7 @@ def save_application(record):
 # STATUS
 # ============================================================
 
-def fetch_status(
-    application_id,
-):
+def fetch_status(application_id):
 
     if GOVERNMENT_STATUS_URL:
 
@@ -2424,9 +1637,7 @@ def fetch_status(
         FROM applications
         WHERE application_id = ?
         """,
-        (
-            application_id,
-        ),
+        (application_id,),
     )
 
     row = cursor.fetchone()
@@ -2457,13 +1668,6 @@ def fetch_status(
 
 
 # ============================================================
-# ENSURE CURRENT CONVERSATION
-# ============================================================
-
-ensure_conversation()
-
-
-# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -2475,204 +1679,15 @@ with st.sidebar:
         "AI-powered public-service assistant"
     )
 
-    # --------------------------------------------------------
-    # GOOGLE ACCOUNT
-    # --------------------------------------------------------
-
-    st.markdown("### 👤 Account")
-
-    if CURRENT_USER_PICTURE:
-
-        st.image(
-            CURRENT_USER_PICTURE,
-            width=48,
-        )
-
-    st.markdown(
-        f"**{CURRENT_USER_NAME or 'Google User'}**"
-    )
-
-    st.caption(
-        CURRENT_USER_EMAIL
-    )
-
-    if st.button(
-        "🚪 Sign out",
-        use_container_width=True,
-    ):
-
-        st.logout()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # NEW CONVERSATION
-    # --------------------------------------------------------
-
-    if st.button(
-        "➕ New conversation",
-        type="primary",
-        use_container_width=True,
-    ):
-
-        current_id = st.session_state.get(
-            "conversation_id"
-        )
-
-        if current_id:
-            save_conversation_state()
-
-        new_id = create_conversation(
-            "New conversation"
-        )
-
-        reset_conversation_state()
-
-        st.session_state[
-            "conversation_id"
-        ] = new_id
-
-        st.session_state[
-            "language"
-        ] = "English"
-
-        st.rerun()
-
-    # --------------------------------------------------------
-    # LANGUAGE
-    # --------------------------------------------------------
-
     language = st.selectbox(
         "🌐 Language",
-        list(
-            LANGUAGE_CODES.keys()
-        ),
-        key="language",
+        list(LANGUAGE_CODES.keys()),
+        index=0,
     )
 
     st.divider()
 
-    # --------------------------------------------------------
-    # PREVIOUS CONVERSATIONS
-    # --------------------------------------------------------
-
-    st.markdown(
-        "### 🕘 Previous conversations"
-    )
-
-    conversations = get_conversations()
-
-    if not conversations:
-
-        st.caption(
-            "No previous conversations yet."
-        )
-
-    else:
-
-        for conversation in conversations:
-
-            conversation_id = (
-                conversation[
-                    "conversation_id"
-                ]
-            )
-
-            title = (
-                conversation["title"]
-                or "New conversation"
-            )
-
-            if len(title) > 34:
-
-                title = (
-                    title[:34]
-                    + "..."
-                )
-
-            is_current = (
-                conversation_id
-                == st.session_state.get(
-                    "conversation_id"
-                )
-            )
-
-            col_open, col_delete = (
-                st.columns(
-                    [5, 1]
-                )
-            )
-
-            with col_open:
-
-                label = (
-                    "🟢 "
-                    if is_current
-                    else "💬 "
-                ) + title
-
-                if st.button(
-                    label,
-                    key=(
-                        "open_"
-                        + conversation_id
-                    ),
-                    use_container_width=True,
-                ):
-
-                    if not is_current:
-
-                        save_conversation_state()
-
-                        loaded = (
-                            load_conversation(
-                                conversation_id
-                            )
-                        )
-
-                        if loaded:
-                            st.rerun()
-
-            with col_delete:
-
-                if st.button(
-                    "🗑️",
-                    key=(
-                        "delete_"
-                        + conversation_id
-                    ),
-                    use_container_width=True,
-                ):
-
-                    delete_conversation(
-                        conversation_id
-                    )
-
-                    if is_current:
-
-                        reset_conversation_state()
-
-                        new_id = (
-                            create_conversation(
-                                "New conversation"
-                            )
-                        )
-
-                        st.session_state[
-                            "conversation_id"
-                        ] = new_id
-
-                    st.rerun()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # HOW IT WORKS
-    # --------------------------------------------------------
-
-    st.markdown(
-        "### How it works"
-    )
+    st.markdown("### How it works")
 
     st.markdown(
         """
@@ -2702,25 +1717,6 @@ with st.sidebar:
         "NextStep AI never bypasses CAPTCHA, OTP, biometric "
         "verification, or other human-verification controls."
     )
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown(
-    '<div class="main-title">🧭 NextStep AI</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="subtitle">Discover • Prepare • Submit • Track</div>',
-    unsafe_allow_html=True,
-)
-
-st.caption(
-    f"Signed in as {CURRENT_USER_EMAIL}"
-)
 
 
 # ============================================================
@@ -2760,9 +1756,7 @@ with assistant_tab:
 
     if voice_audio is not None:
 
-        audio_bytes = (
-            voice_audio.getvalue()
-        )
+        audio_bytes = voice_audio.getvalue()
 
         with st.spinner(
             "🎧 Understanding your voice..."
@@ -2904,35 +1898,8 @@ with assistant_tab:
                     "submission_result"
                 ] = None
 
-                st.session_state[
-                    "pending_application_payload"
-                ] = None
-
-                st.session_state[
-                    "ready_to_submit"
-                ] = False
-
-                add_conversation_message(
-                    "user",
-                    user_request.strip(),
-                )
-
-                add_conversation_message(
-                    "assistant",
-                    (
-                        "Identified service: "
-                        + str(
-                            result.get(
-                                "service_name",
-                                "Unknown",
-                            )
-                        )
-                    ),
-                )
-
-                save_conversation_state()
-
                 st.rerun()
+
 
     # ========================================================
     # IDENTIFIED SERVICE
@@ -3009,18 +1976,13 @@ with assistant_tab:
             # OFFICIAL URL
             # ------------------------------------------------
 
-            official_url = (
-                st.session_state.get(
-                    "official_url",
-                    "",
-                )
+            official_url = st.session_state.get(
+                "official_url",
+                "",
             )
 
-            if (
+            if official_url and is_official_url(
                 official_url
-                and is_official_url(
-                    official_url
-                )
             ):
 
                 st.markdown(
@@ -3044,11 +2006,8 @@ with assistant_tab:
             # VERIFY OFFICIAL PAGE
             # ------------------------------------------------
 
-            if (
+            if official_url and is_official_url(
                 official_url
-                and is_official_url(
-                    official_url
-                )
             ):
 
                 if st.button(
@@ -3060,21 +2019,17 @@ with assistant_tab:
                         "🔍 Checking the official application process..."
                     ):
 
-                        page_result = (
-                            read_official_page(
-                                official_url
-                            )
+                        page_result = read_official_page(
+                            official_url
                         )
 
                         if page_result.get(
                             "success"
                         ):
 
-                            page_text = (
-                                page_result.get(
-                                    "text",
-                                    "",
-                                )
+                            page_text = page_result.get(
+                                "text",
+                                "",
                             )
 
                             barrier_result = (
@@ -3114,23 +2069,6 @@ with assistant_tab:
                                 "timeline"
                             ] = timeline
 
-                            add_conversation_message(
-                                "assistant",
-                                (
-                                    "Official application process "
-                                    "checked for "
-                                    + str(
-                                        service.get(
-                                            "service_name",
-                                            "the service",
-                                        )
-                                    )
-                                    + "."
-                                ),
-                            )
-
-                            save_conversation_state()
-
                             st.success(
                                 "Official application process checked."
                             )
@@ -3154,16 +2092,12 @@ with assistant_tab:
             # BARRIER RESULT
             # ------------------------------------------------
 
-            barrier_check = (
-                st.session_state.get(
-                    "barrier_check"
-                )
+            barrier_check = st.session_state.get(
+                "barrier_check"
             )
 
-            capability = (
-                st.session_state.get(
-                    "submission_capability"
-                )
+            capability = st.session_state.get(
+                "submission_capability"
             )
 
             if barrier_check:
@@ -3174,11 +2108,9 @@ with assistant_tab:
                     "### 🛡️ AI Submission Safety Check"
                 )
 
-                barriers = (
-                    barrier_check.get(
-                        "barriers",
-                        [],
-                    )
+                barriers = barrier_check.get(
+                    "barriers",
+                    [],
                 )
 
                 blocking_barriers = []
@@ -3210,22 +2142,16 @@ with assistant_tab:
                         "🚫 Automatic AI submission is not supported for this service."
                     )
 
-                    for barrier in (
-                        blocking_barriers
-                    ):
+                    for barrier in blocking_barriers:
 
-                        barrier_type = (
-                            barrier.get(
-                                "type",
-                                "human verification",
-                            )
+                        barrier_type = barrier.get(
+                            "type",
+                            "human verification",
                         )
 
-                        evidence = (
-                            barrier.get(
-                                "evidence",
-                                "",
-                            )
+                        evidence = barrier.get(
+                            "evidence",
+                            "",
                         )
 
                         st.markdown(
@@ -3244,11 +2170,8 @@ with assistant_tab:
                         "government portal manually."
                     )
 
-                elif (
-                    capability
-                    and capability.get(
-                        "supported"
-                    )
+                elif capability and capability.get(
+                    "supported"
                 ):
 
                     st.success(
@@ -3271,11 +2194,13 @@ with assistant_tab:
                         "The submission process could not be verified."
                     )
 
-                human_steps = (
-                    barrier_check.get(
-                        "human_steps_required",
-                        [],
-                    )
+                # --------------------------------------------
+                # HUMAN STEPS
+                # --------------------------------------------
+
+                human_steps = barrier_check.get(
+                    "human_steps_required",
+                    [],
                 )
 
                 if human_steps:
@@ -3306,9 +2231,7 @@ with assistant_tab:
                 "application when an authorized integration allows it."
             )
 
-            decision_col1, decision_col2 = (
-                st.columns(2)
-            )
+            decision_col1, decision_col2 = st.columns(2)
 
             with decision_col1:
 
@@ -3332,11 +2255,8 @@ with assistant_tab:
                         "First run the AI Submission Compatibility Check."
                     )
 
-                elif (
-                    capability
-                    and capability.get(
-                        "supported"
-                    )
+                elif capability and capability.get(
+                    "supported"
                 ):
 
                     st.session_state[
@@ -3346,20 +2266,6 @@ with assistant_tab:
                     st.session_state[
                         "application_mode"
                     ] = True
-
-                    add_conversation_message(
-                        "user",
-                        "Yes, apply for me.",
-                    )
-
-                    add_conversation_message(
-                        "assistant",
-                        (
-                            "Application Mode enabled. "
-                            "NextStep AI will collect only "
-                            "the information needed for the application."
-                        ),
-                    )
 
                     st.rerun()
 
@@ -3388,31 +2294,15 @@ with assistant_tab:
                     "application_mode"
                 ] = False
 
-                add_conversation_message(
-                    "user",
-                    "No, only show requirements.",
-                )
-
-                add_conversation_message(
-                    "assistant",
-                    (
-                        "Showing the service requirements "
-                        "and official government portal."
-                    ),
-                )
-
                 st.rerun()
 
             # ------------------------------------------------
             # REQUIREMENTS FOR NO MODE
             # ------------------------------------------------
 
-            if (
-                st.session_state.get(
-                    "application_decision"
-                )
-                == "no"
-            ):
+            if st.session_state.get(
+                "application_decision"
+            ) == "no":
 
                 st.divider()
 
@@ -3438,13 +2328,9 @@ with assistant_tab:
                             "requirements"
                         ] = requirements
 
-                        save_conversation_state()
-
-                requirements = (
-                    st.session_state.get(
-                        "requirements",
-                        {},
-                    )
+                requirements = st.session_state.get(
+                    "requirements",
+                    {},
                 )
 
                 for item in requirements.get(
@@ -3482,11 +2368,9 @@ with assistant_tab:
                                 )
                             )
 
-                information_needed = (
-                    requirements.get(
-                        "information_needed",
-                        [],
-                    )
+                information_needed = requirements.get(
+                    "information_needed",
+                    [],
                 )
 
                 if information_needed:
@@ -3495,9 +2379,7 @@ with assistant_tab:
                         "#### Information you may need"
                     )
 
-                    for item in (
-                        information_needed
-                    ):
+                    for item in information_needed:
 
                         st.markdown(
                             f"- {item}"
@@ -3557,22 +2439,16 @@ with application_tab:
 
     else:
 
-        service = (
-            st.session_state.get(
-                "identified_service"
-            )
+        service = st.session_state.get(
+            "identified_service"
         )
 
-        capability = (
-            st.session_state.get(
-                "submission_capability"
-            )
+        capability = st.session_state.get(
+            "submission_capability"
         )
 
-        barrier_check = (
-            st.session_state.get(
-                "barrier_check"
-            )
+        barrier_check = st.session_state.get(
+            "barrier_check"
         )
 
         if not service or not capability:
@@ -3625,13 +2501,9 @@ with application_tab:
                         service
                     )
 
-                    save_conversation_state()
-
-            requirements = (
-                st.session_state.get(
-                    "requirements",
-                    {},
-                )
+            requirements = st.session_state.get(
+                "requirements",
+                {},
             )
 
             for item in requirements.get(
@@ -3667,53 +2539,38 @@ with application_tab:
                 "application_form"
             ):
 
-                applicant_name = (
-                    st.text_input(
-                        "Full name *"
-                    )
+                applicant_name = st.text_input(
+                    "Full name *"
                 )
 
-                phone = (
-                    st.text_input(
-                        "Phone number *"
-                    )
+                phone = st.text_input(
+                    "Phone number *"
                 )
 
-                email = (
-                    st.text_input(
-                        "Email address",
-                        value=CURRENT_USER_EMAIL,
-                    )
+                email = st.text_input(
+                    "Email address"
                 )
 
-                address = (
-                    st.text_area(
-                        "Address"
-                    )
+                address = st.text_area(
+                    "Address"
                 )
 
-                additional_information = (
-                    st.text_area(
-                        "Additional information"
-                    )
+                additional_information = st.text_area(
+                    "Additional information"
                 )
 
                 st.markdown(
                     "### Step 3: Review and authorization"
                 )
 
-                authorization = (
-                    st.checkbox(
-                        "I authorize NextStep AI to submit the above application through the configured authorized government integration."
-                    )
+                authorization = st.checkbox(
+                    "I authorize NextStep AI to submit the above application through the configured authorized government integration."
                 )
 
-                submitted = (
-                    st.form_submit_button(
-                        "🚀 Review & Submit Application",
-                        type="primary",
-                        use_container_width=True,
-                    )
+                submitted = st.form_submit_button(
+                    "🚀 Review & Submit Application",
+                    type="primary",
+                    use_container_width=True,
                 )
 
             if submitted:
@@ -3721,19 +2578,16 @@ with application_tab:
                 errors = []
 
                 if not applicant_name.strip():
-
                     errors.append(
                         "Full name is required."
                     )
 
                 if not phone.strip():
-
                     errors.append(
                         "Phone number is required."
                     )
 
                 if not authorization:
-
                     errors.append(
                         "You must explicitly authorize submission."
                     )
@@ -3741,59 +2595,44 @@ with application_tab:
                 if errors:
 
                     for error in errors:
-
-                        st.error(
-                            error
-                        )
+                        st.error(error)
 
                 else:
 
                     st.session_state[
                         "pending_application_payload"
                     ] = {
-
                         "service_name": service.get(
                             "service_name",
                             "",
                         ),
-
                         "category": service.get(
                             "service_category",
                             "",
                         ),
-
                         "jurisdiction": service.get(
                             "jurisdiction",
                             "",
                         ),
-
                         "department": service.get(
                             "department",
                             "",
                         ),
-
                         "applicant": {
-
                             "name": applicant_name.strip(),
-
                             "phone": phone.strip(),
-
                             "email": email.strip(),
-
                             "address": address.strip(),
-
                             "additional_information": (
                                 additional_information.strip()
                             ),
                         },
-
                         "official_portal_url": (
                             st.session_state.get(
                                 "official_url",
                                 "",
                             )
                         ),
-
                         "submission_timestamp": (
                             datetime.now().isoformat()
                         ),
@@ -3804,6 +2643,7 @@ with application_tab:
                     ] = True
 
                     st.rerun()
+
 
             # ------------------------------------------------
             # FINAL REVIEW
@@ -3820,11 +2660,9 @@ with application_tab:
                     "## 🔎 Final Review"
                 )
 
-                payload = (
-                    st.session_state.get(
-                        "pending_application_payload",
-                        {},
-                    )
+                payload = st.session_state.get(
+                    "pending_application_payload",
+                    {},
                 )
 
                 applicant = payload.get(
@@ -3832,9 +2670,7 @@ with application_tab:
                     {},
                 )
 
-                review_col1, review_col2 = (
-                    st.columns(2)
-                )
+                review_col1, review_col2 = st.columns(2)
 
                 with review_col1:
 
@@ -3871,9 +2707,7 @@ with application_tab:
                     "the government system controls the application."
                 )
 
-                confirm_col1, confirm_col2 = (
-                    st.columns(2)
-                )
+                confirm_col1, confirm_col2 = st.columns(2)
 
                 with confirm_col1:
 
@@ -3931,27 +2765,19 @@ with application_tab:
                             "application_id"
                         ] = application_id
 
-                        submission_date = (
-                            date.today()
+                        submission_date = date.today()
+
+                        timeline = st.session_state.get(
+                            "timeline",
+                            {},
                         )
 
-                        timeline = (
-                            st.session_state.get(
-                                "timeline",
-                                {},
-                            )
+                        processing_days = timeline.get(
+                            "processing_days"
                         )
 
-                        processing_days = (
-                            timeline.get(
-                                "processing_days"
-                            )
-                        )
-
-                        processing_type = (
-                            timeline.get(
-                                "processing_type"
-                            )
+                        processing_type = timeline.get(
+                            "processing_type"
                         )
 
                         expected_completion = (
@@ -3968,125 +2794,100 @@ with application_tab:
                             else {}
                         )
 
-                        now = (
-                            datetime.now()
-                            .isoformat()
-                        )
+                        now = datetime.now().isoformat()
 
                         record = {
+                            "application_id": application_id,
 
-                            "application_id":
-                                application_id,
+                            "service_name": service.get(
+                                "service_name",
+                                "",
+                            ),
 
-                            "service_name":
-                                service.get(
-                                    "service_name",
-                                    "",
-                                ),
+                            "category": service.get(
+                                "service_category",
+                                "",
+                            ),
 
-                            "category":
-                                service.get(
-                                    "service_category",
-                                    "",
-                                ),
+                            "jurisdiction": service.get(
+                                "jurisdiction",
+                                "",
+                            ),
 
-                            "jurisdiction":
-                                service.get(
-                                    "jurisdiction",
-                                    "",
-                                ),
+                            "department": service.get(
+                                "department",
+                                "",
+                            ),
 
-                            "department":
-                                service.get(
-                                    "department",
-                                    "",
-                                ),
+                            "applicant_name": applicant.get(
+                                "name",
+                                "",
+                            ),
 
-                            "applicant_name":
-                                applicant.get(
-                                    "name",
-                                    "",
-                                ),
+                            "phone": applicant.get(
+                                "phone",
+                                "",
+                            ),
 
-                            "phone":
-                                applicant.get(
-                                    "phone",
-                                    "",
-                                ),
+                            "email": applicant.get(
+                                "email",
+                                "",
+                            ),
 
-                            "email":
-                                applicant.get(
-                                    "email",
-                                    "",
-                                ),
+                            "address": applicant.get(
+                                "address",
+                                "",
+                            ),
 
-                            "address":
-                                applicant.get(
-                                    "address",
-                                    "",
-                                ),
+                            "additional_information": applicant.get(
+                                "additional_information",
+                                "",
+                            ),
 
-                            "additional_information":
-                                applicant.get(
-                                    "additional_information",
-                                    "",
-                                ),
+                            "official_url": payload.get(
+                                "official_portal_url",
+                                "",
+                            ),
 
-                            "official_url":
+                            "submission_date": submission_date.isoformat(),
+
+                            "status": "Submitted",
+
+                            "processing_days": processing_days,
+
+                            "processing_type": processing_type,
+
+                            "expected_completion_date": (
+                                expected_completion.isoformat()
+                                if expected_completion
+                                else None
+                            ),
+
+                            "timeline_source": (
                                 payload.get(
                                     "official_portal_url",
                                     "",
-                                ),
+                                )
+                            ),
 
-                            "submission_date":
-                                submission_date.isoformat(),
+                            "timeline_verified": timeline.get(
+                                "verified",
+                                False,
+                            ),
 
-                            "status":
-                                "Submitted",
+                            "ai_submission_supported": True,
 
-                            "processing_days":
-                                processing_days,
+                            "barrier_detected": bool(
+                                barrier_details.get(
+                                    "barriers"
+                                )
+                            ),
 
-                            "processing_type":
-                                processing_type,
+                            "barrier_details": barrier_details,
 
-                            "expected_completion_date":
-                                (
-                                    expected_completion.isoformat()
-                                    if expected_completion
-                                    else None
-                                ),
+                            "created_at": now,
 
-                            "timeline_source":
-                                payload.get(
-                                    "official_portal_url",
-                                    "",
-                                ),
-
-                            "timeline_verified":
-                                timeline.get(
-                                    "verified",
-                                    False,
-                                ),
-
-                            "ai_submission_supported":
-                                True,
-
-                            "barrier_detected":
-                                bool(
-                                    barrier_details.get(
-                                        "barriers"
-                                    )
-                                ),
-
-                            "barrier_details":
-                                barrier_details,
-
-                            "created_at":
-                                now,
-
-                            "updated_at":
-                                now,
+                            "updated_at": now,
                         }
 
                         save_application(
@@ -4097,29 +2898,12 @@ with application_tab:
                             "ready_to_submit"
                         ] = False
 
-                        st.session_state[
-                            "pending_application_payload"
-                        ] = None
-
-                        add_conversation_message(
-                            "assistant",
-                            (
-                                "Application submitted successfully. "
-                                "Application/reference number: "
-                                + str(
-                                    application_id
-                                )
-                            ),
-                        )
-
-                        save_conversation_state()
-
                         st.success(
                             "✅ Application submitted successfully through the configured authorized government integration."
                         )
 
                         st.markdown(
-                            "### Application ID"
+                            f"### Application ID"
                         )
 
                         st.code(
@@ -4159,14 +2943,6 @@ with application_tab:
                             )
                         )
 
-                        add_conversation_message(
-                            "assistant",
-                            (
-                                "Government application submission "
-                                "failed. No fake application ID was created."
-                            ),
-                        )
-
                         st.info(
                             "No fake application ID was created. "
                             "Please use the official portal if necessary."
@@ -4183,16 +2959,14 @@ with status_tab:
         "## 📊 Application Status"
     )
 
-    application_id_input = (
-        st.text_input(
-            "Enter your application/reference number",
-            value=(
-                st.session_state.get(
-                    "application_id"
-                )
-                or ""
-            ),
-        )
+    application_id_input = st.text_input(
+        "Enter your application/reference number",
+        value=(
+            st.session_state.get(
+                "application_id"
+            )
+            or ""
+        ),
     )
 
     if st.button(
@@ -4213,10 +2987,8 @@ with status_tab:
                 "Checking application status..."
             ):
 
-                status_result = (
-                    fetch_status(
-                        application_id_input.strip()
-                    )
+                status_result = fetch_status(
+                    application_id_input.strip()
                 )
 
             if not status_result.get(
@@ -4232,11 +3004,9 @@ with status_tab:
 
             else:
 
-                status = (
-                    status_result.get(
-                        "status",
-                        "Unknown",
-                    )
+                status = status_result.get(
+                    "status",
+                    "Unknown",
                 )
 
                 st.success(
@@ -4253,29 +3023,21 @@ with status_tab:
                         )
                     )
 
-                raw = (
-                    status_result.get(
-                        "raw",
-                        {},
-                    )
+                raw = status_result.get(
+                    "raw",
+                    {},
                 )
 
-                processing_days = (
-                    raw.get(
-                        "processing_days"
-                    )
+                processing_days = raw.get(
+                    "processing_days"
                 )
 
-                processing_type = (
-                    raw.get(
-                        "processing_type"
-                    )
+                processing_type = raw.get(
+                    "processing_type"
                 )
 
-                expected_date_raw = (
-                    raw.get(
-                        "expected_completion_date"
-                    )
+                expected_date_raw = raw.get(
+                    "expected_completion_date"
                 )
 
                 if expected_date_raw:
