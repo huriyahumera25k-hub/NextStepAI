@@ -3,6 +3,7 @@ import requests
 import json
 import re
 import sqlite3
+import uuid
 import base64
 
 from datetime import datetime, date, timedelta
@@ -77,47 +78,210 @@ BLOCKING_BARRIERS = {
 
 
 # ============================================================
-# DEFAULT SESSION STATE
+# SESSION STATE
 # ============================================================
 
 DEFAULT_STATE = {
-    "conversation_id": None,
-
     "typed_service_request": "",
     "voice_text": "",
-
     "service_identified": False,
     "identified_service": None,
-
     "application_decision": None,
     "application_mode": False,
-
     "requirements": None,
     "timeline": None,
-
     "official_url": "",
     "official_page_text": "",
-
     "barrier_check": None,
     "submission_capability": None,
-
     "application_id": None,
     "submission_result": None,
-
+    "last_ai_response": "",
+    "conversation_id": None,
+    "language": "English",
     "pending_application_payload": None,
     "ready_to_submit": False,
-
-    "last_ai_response": "",
-
-    "language": "English",
 }
 
 
 for key, value in DEFAULT_STATE.items():
-
     if key not in st.session_state:
-
         st.session_state[key] = value
+
+
+# ============================================================
+# GOOGLE AUTHENTICATION
+# ============================================================
+
+def authentication_available():
+    """
+    Safely checks whether Streamlit authentication is configured.
+    """
+
+    try:
+        return hasattr(st, "user") and hasattr(
+            st.user,
+            "is_logged_in",
+        )
+    except Exception:
+        return False
+
+
+def is_logged_in():
+    """
+    Returns True only when a Google/OIDC user is authenticated.
+    """
+
+    try:
+        return bool(
+            authentication_available()
+            and st.user.is_logged_in
+        )
+    except Exception:
+        return False
+
+
+def get_google_user():
+    """
+    Reads the authenticated identity from Streamlit's OIDC user.
+
+    We use the email as the unique account identifier because
+    conversation history must be isolated between accounts.
+    """
+
+    if not is_logged_in():
+        return {
+            "email": "",
+            "name": "Guest",
+            "picture": "",
+        }
+
+    try:
+        email = str(
+            getattr(
+                st.user,
+                "email",
+                "",
+            )
+            or ""
+        ).strip().lower()
+
+        name = str(
+            getattr(
+                st.user,
+                "name",
+                "",
+            )
+            or ""
+        ).strip()
+
+        picture = str(
+            getattr(
+                st.user,
+                "picture",
+                "",
+            )
+            or ""
+        ).strip()
+
+        return {
+            "email": email,
+            "name": name or "Google User",
+            "picture": picture,
+        }
+
+    except Exception:
+        return {
+            "email": "",
+            "name": "Google User",
+            "picture": "",
+        }
+
+
+GOOGLE_USER = get_google_user()
+CURRENT_USER_EMAIL = GOOGLE_USER.get("email", "")
+CURRENT_USER_NAME = GOOGLE_USER.get("name", "")
+CURRENT_USER_PICTURE = GOOGLE_USER.get("picture", "")
+
+
+# ============================================================
+# LOGIN SCREEN
+# ============================================================
+
+if not is_logged_in():
+
+    st.markdown(
+        """
+        <div style="
+            max-width:760px;
+            margin:90px auto;
+            text-align:center;
+        ">
+            <div style="
+                font-size:64px;
+                margin-bottom:10px;
+            ">
+                🧭
+            </div>
+
+            <div style="
+                font-size:46px;
+                font-weight:800;
+            ">
+                NextStep AI
+            </div>
+
+            <div style="
+                font-size:19px;
+                opacity:0.72;
+                margin-top:8px;
+            ">
+                Discover • Prepare • Submit • Track
+            </div>
+
+            <div style="
+                margin-top:30px;
+                font-size:17px;
+                opacity:0.8;
+            ">
+                Sign in with your Google account to continue.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<div style='max-width:420px;margin:auto;'>",
+        unsafe_allow_html=True,
+    )
+
+    if authentication_available():
+
+        if st.button(
+            "🔐 Continue with Google",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.login()
+
+    else:
+
+        st.error(
+            "Google authentication is not configured yet."
+        )
+
+        st.info(
+            "Add the [auth] configuration to "
+            ".streamlit/secrets.toml and install Authlib."
+        )
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.stop()
 
 
 # ============================================================
@@ -346,13 +510,15 @@ def init_database():
 
             conversation_id TEXT PRIMARY KEY,
 
-            title TEXT NOT NULL,
+            user_email TEXT NOT NULL,
 
-            state_json TEXT,
+            title TEXT,
 
             created_at TEXT,
 
-            updated_at TEXT
+            updated_at TEXT,
+
+            state_json TEXT
         )
         """
     )
@@ -369,11 +535,31 @@ def init_database():
 
             conversation_id TEXT NOT NULL,
 
-            role TEXT NOT NULL,
+            user_email TEXT NOT NULL,
 
-            content TEXT NOT NULL,
+            role TEXT,
+
+            content TEXT,
 
             created_at TEXT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS
+        idx_conversation_user
+        ON conversations(user_email)
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS
+        idx_message_conversation
+        ON conversation_messages(
+            conversation_id
         )
         """
     )
@@ -404,69 +590,63 @@ CONVERSATION_STATE_KEYS = [
     "submission_capability",
     "application_id",
     "submission_result",
-    "pending_application_payload",
-    "ready_to_submit",
     "last_ai_response",
     "language",
 ]
 
 
-def get_conversation_state():
+def reset_conversation_state():
 
-    state = {}
+    for key, default_value in DEFAULT_STATE.items():
+
+        if key == "conversation_id":
+            continue
+
+        if key == "language":
+            st.session_state[key] = "English"
+        else:
+            st.session_state[key] = default_value
+
+
+def conversation_state_snapshot():
+
+    snapshot = {}
 
     for key in CONVERSATION_STATE_KEYS:
 
-        value = st.session_state.get(
+        snapshot[key] = st.session_state.get(
             key
         )
 
-        try:
-
-            json.dumps(
-                value,
-                ensure_ascii=False,
-            )
-
-            state[key] = value
-
-        except Exception:
-
-            state[key] = None
-
-    return state
+    return snapshot
 
 
-def restore_conversation_state(
-    state,
-):
+def make_conversation_title(text):
 
-    if not isinstance(
-        state,
-        dict,
-    ):
-        return
+    cleaned = re.sub(
+        r"\s+",
+        " ",
+        str(text or ""),
+    ).strip()
 
-    for key in CONVERSATION_STATE_KEYS:
+    if not cleaned:
+        return "New conversation"
 
-        if key in state:
+    if len(cleaned) > 42:
+        return cleaned[:42].rstrip() + "..."
 
-            st.session_state[key] = state[key]
-
-
-def reset_conversation_state():
-
-    for key, value in DEFAULT_STATE.items():
-
-        st.session_state[key] = value
+    return cleaned
 
 
 def create_conversation(
-    title="New Conversation",
+    title="New conversation",
 ):
 
+    if not CURRENT_USER_EMAIL:
+        return None
+
     conversation_id = str(
-        __import__("uuid").uuid4()
+        uuid.uuid4()
     )
 
     now = datetime.now().isoformat()
@@ -479,23 +659,24 @@ def create_conversation(
         """
         INSERT INTO conversations (
             conversation_id,
+            user_email,
             title,
-            state_json,
             created_at,
-            updated_at
+            updated_at,
+            state_json
         )
-
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             conversation_id,
+            CURRENT_USER_EMAIL,
             title,
+            now,
+            now,
             json.dumps(
                 {},
                 ensure_ascii=False,
             ),
-            now,
-            now,
         ),
     )
 
@@ -505,16 +686,55 @@ def create_conversation(
     return conversation_id
 
 
-def save_conversation_state():
+def ensure_conversation():
 
-    conversation_id = st.session_state.get(
+    existing_id = st.session_state.get(
         "conversation_id"
     )
+
+    if existing_id:
+
+        connection = get_db()
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT conversation_id
+            FROM conversations
+            WHERE conversation_id = ?
+            AND user_email = ?
+            """,
+            (
+                existing_id,
+                CURRENT_USER_EMAIL,
+            ),
+        )
+
+        row = cursor.fetchone()
+
+        connection.close()
+
+        if row:
+            return existing_id
+
+    conversation_id = create_conversation()
+
+    st.session_state[
+        "conversation_id"
+    ] = conversation_id
+
+    return conversation_id
+
+
+def save_conversation_state():
+
+    conversation_id = ensure_conversation()
 
     if not conversation_id:
         return
 
-    state = get_conversation_state()
+    state = conversation_state_snapshot()
 
     now = datetime.now().isoformat()
 
@@ -525,12 +745,10 @@ def save_conversation_state():
     cursor.execute(
         """
         UPDATE conversations
-
-        SET
-            state_json = ?,
+        SET state_json = ?,
             updated_at = ?
-
         WHERE conversation_id = ?
+        AND user_email = ?
         """,
         (
             json.dumps(
@@ -539,50 +757,7 @@ def save_conversation_state():
             ),
             now,
             conversation_id,
-        ),
-    )
-
-    connection.commit()
-    connection.close()
-
-
-def update_conversation_title(
-    title,
-):
-
-    conversation_id = st.session_state.get(
-        "conversation_id"
-    )
-
-    if not conversation_id:
-        return
-
-    title = str(title).strip()
-
-    if not title:
-        return
-
-    if len(title) > 60:
-        title = title[:57] + "..."
-
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        UPDATE conversations
-
-        SET
-            title = ?,
-            updated_at = ?
-
-        WHERE conversation_id = ?
-        """,
-        (
-            title,
-            datetime.now().isoformat(),
-            conversation_id,
+            CURRENT_USER_EMAIL,
         ),
     )
 
@@ -595,15 +770,15 @@ def add_conversation_message(
     content,
 ):
 
-    conversation_id = st.session_state.get(
-        "conversation_id"
-    )
+    if not content:
+        return
+
+    conversation_id = ensure_conversation()
 
     if not conversation_id:
         return
 
-    if not content:
-        return
+    now = datetime.now().isoformat()
 
     connection = get_db()
 
@@ -613,37 +788,83 @@ def add_conversation_message(
         """
         INSERT INTO conversation_messages (
             conversation_id,
+            user_email,
             role,
             content,
             created_at
         )
-
-        VALUES (?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             conversation_id,
+            CURRENT_USER_EMAIL,
             role,
             str(content),
-            datetime.now().isoformat(),
+            now,
         ),
     )
 
-    cursor.execute(
-        """
-        UPDATE conversations
+    # Give the conversation a useful title
+    if role == "user":
 
-        SET updated_at = ?
+        cursor.execute(
+            """
+            SELECT title
+            FROM conversations
+            WHERE conversation_id = ?
+            AND user_email = ?
+            """,
+            (
+                conversation_id,
+                CURRENT_USER_EMAIL,
+            ),
+        )
 
-        WHERE conversation_id = ?
-        """,
-        (
-            datetime.now().isoformat(),
-            conversation_id,
-        ),
-    )
+        row = cursor.fetchone()
+
+        if row and (
+            not row["title"]
+            or row["title"] == "New conversation"
+        ):
+
+            cursor.execute(
+                """
+                UPDATE conversations
+                SET title = ?,
+                    updated_at = ?
+                WHERE conversation_id = ?
+                AND user_email = ?
+                """,
+                (
+                    make_conversation_title(
+                        content
+                    ),
+                    now,
+                    conversation_id,
+                    CURRENT_USER_EMAIL,
+                ),
+            )
+
+    else:
+
+        cursor.execute(
+            """
+            UPDATE conversations
+            SET updated_at = ?
+            WHERE conversation_id = ?
+            AND user_email = ?
+            """,
+            (
+                now,
+                conversation_id,
+                CURRENT_USER_EMAIL,
+            ),
+        )
 
     connection.commit()
     connection.close()
+
+    save_conversation_state()
 
 
 def get_conversations():
@@ -659,11 +880,13 @@ def get_conversations():
             title,
             created_at,
             updated_at
-
         FROM conversations
-
+        WHERE user_email = ?
         ORDER BY updated_at DESC
-        """
+        """,
+        (
+            CURRENT_USER_EMAIL,
+        ),
     )
 
     rows = cursor.fetchall()
@@ -677,6 +900,9 @@ def load_conversation(
     conversation_id,
 ):
 
+    if not conversation_id:
+        return False
+
     connection = get_db()
 
     cursor = connection.cursor()
@@ -684,13 +910,13 @@ def load_conversation(
     cursor.execute(
         """
         SELECT *
-
         FROM conversations
-
         WHERE conversation_id = ?
+        AND user_email = ?
         """,
         (
             conversation_id,
+            CURRENT_USER_EMAIL,
         ),
     )
 
@@ -700,6 +926,12 @@ def load_conversation(
 
     if not row:
         return False
+
+    reset_conversation_state()
+
+    st.session_state[
+        "conversation_id"
+    ] = conversation_id
 
     try:
 
@@ -712,15 +944,24 @@ def load_conversation(
 
         state = {}
 
-    reset_conversation_state()
+    if isinstance(state, dict):
+
+        for key in CONVERSATION_STATE_KEYS:
+
+            if key in state:
+
+                st.session_state[key] = (
+                    state[key]
+                )
+
+    # Never restore sensitive unfinished form data.
+    st.session_state[
+        "pending_application_payload"
+    ] = None
 
     st.session_state[
-        "conversation_id"
-    ] = conversation_id
-
-    restore_conversation_state(
-        state
-    )
+        "ready_to_submit"
+    ] = False
 
     return True
 
@@ -729,6 +970,9 @@ def delete_conversation(
     conversation_id,
 ):
 
+    if not conversation_id:
+        return
+
     connection = get_db()
 
     cursor = connection.cursor()
@@ -736,339 +980,29 @@ def delete_conversation(
     cursor.execute(
         """
         DELETE FROM conversation_messages
-
         WHERE conversation_id = ?
+        AND user_email = ?
         """,
         (
             conversation_id,
+            CURRENT_USER_EMAIL,
         ),
     )
 
     cursor.execute(
         """
         DELETE FROM conversations
-
         WHERE conversation_id = ?
+        AND user_email = ?
         """,
         (
             conversation_id,
+            CURRENT_USER_EMAIL,
         ),
     )
 
     connection.commit()
     connection.close()
-
-
-def ensure_current_conversation():
-
-    if st.session_state.get(
-        "conversation_id"
-    ):
-        return
-
-    conversation_id = create_conversation()
-
-    st.session_state[
-        "conversation_id"
-    ] = conversation_id
-
-    save_conversation_state()
-
-
-ensure_current_conversation()
-
-
-# ============================================================
-# CONVERSATION SIDEBAR
-# ============================================================
-
-with st.sidebar:
-
-    st.markdown(
-        "## 🧭 NextStep AI"
-    )
-
-    st.caption(
-        "AI-powered public-service assistant"
-    )
-
-    # --------------------------------------------------------
-    # NEW CONVERSATION
-    # --------------------------------------------------------
-
-    if st.button(
-        "➕ New Conversation",
-        use_container_width=True,
-        type="primary",
-    ):
-
-        save_conversation_state()
-
-        new_id = create_conversation()
-
-        reset_conversation_state()
-
-        st.session_state[
-            "conversation_id"
-        ] = new_id
-
-        st.rerun()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # CONVERSATION HISTORY
-    # --------------------------------------------------------
-
-    st.markdown(
-        "### 🕘 Previous Conversations"
-    )
-
-    conversations = get_conversations()
-
-    current_id = st.session_state.get(
-        "conversation_id"
-    )
-
-    if not conversations:
-
-        st.caption(
-            "No previous conversations yet."
-        )
-
-    else:
-
-        for conversation in conversations:
-
-            conversation_id = conversation[
-                "conversation_id"
-            ]
-
-            title = conversation[
-                "title"
-            ] or "New Conversation"
-
-            if len(title) > 38:
-                title = title[:35] + "..."
-
-            is_current = (
-                conversation_id
-                == current_id
-            )
-
-            button_label = (
-                f"🟢 {title}"
-                if is_current
-                else f"💬 {title}"
-            )
-
-            if st.button(
-                button_label,
-                key=(
-                    "open_conversation_"
-                    + conversation_id
-                ),
-                use_container_width=True,
-            ):
-
-                if conversation_id != current_id:
-
-                    save_conversation_state()
-
-                    load_conversation(
-                        conversation_id
-                    )
-
-                    st.rerun()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # DELETE CURRENT CONVERSATION
-    # --------------------------------------------------------
-
-    st.markdown(
-        "### 🗑️ Conversation"
-    )
-
-    if st.button(
-        "🗑️ Delete Current Conversation",
-        use_container_width=True,
-    ):
-
-        current_conversation = (
-            st.session_state.get(
-                "conversation_id"
-            )
-        )
-
-        if current_conversation:
-
-            delete_conversation(
-                current_conversation
-            )
-
-        new_id = create_conversation()
-
-        reset_conversation_state()
-
-        st.session_state[
-            "conversation_id"
-        ] = new_id
-
-        st.rerun()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # LANGUAGE
-    # --------------------------------------------------------
-
-    current_language = st.session_state.get(
-        "language",
-        "English",
-    )
-
-    language_index = 0
-
-    if current_language in LANGUAGE_CODES:
-
-        language_index = list(
-            LANGUAGE_CODES.keys()
-        ).index(
-            current_language
-        )
-
-    language = st.selectbox(
-        "🌐 Language",
-        list(LANGUAGE_CODES.keys()),
-        index=language_index,
-    )
-
-    st.session_state[
-        "language"
-    ] = language
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # HOW IT WORKS
-    # --------------------------------------------------------
-
-    st.markdown(
-        "### How it works"
-    )
-
-    st.markdown(
-        """
-        **1. Discover**  
-        Describe the government service.
-
-        **2. Verify**  
-        NextStep AI checks the official process.
-
-        **3. Safety check**  
-        CAPTCHA and other human-only barriers are detected.
-
-        **4. Prepare**  
-        Required information is collected only when needed.
-
-        **5. Submit**  
-        Submission happens only through an authorized integration.
-
-        **6. Track**  
-        Application status and processing timeline are shown.
-        """
-    )
-
-    st.divider()
-
-    st.caption(
-        "NextStep AI never bypasses CAPTCHA, OTP, biometric "
-        "verification, or other human-verification controls."
-    )
-
-
-# ============================================================
-# CSS
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    .main-title {
-        font-size: 42px;
-        font-weight: 800;
-        margin-bottom: 0;
-    }
-
-    .subtitle {
-        font-size: 17px;
-        opacity: 0.75;
-        margin-top: 4px;
-        margin-bottom: 24px;
-    }
-
-    .service-box {
-        padding: 20px;
-        border-radius: 16px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 16px;
-    }
-
-    .success-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(50,180,100,0.35);
-        background: rgba(50,180,100,0.08);
-    }
-
-    .warning-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(220,170,50,0.35);
-        background: rgba(220,170,50,0.08);
-    }
-
-    .danger-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(220,70,70,0.35);
-        background: rgba(220,70,70,0.08);
-    }
-
-    .info-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(80,130,220,0.35);
-        background: rgba(80,130,220,0.08);
-    }
-
-    .small-muted {
-        font-size: 13px;
-        opacity: 0.7;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown(
-    '<div class="main-title">🧭 NextStep AI</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="subtitle">Discover • Prepare • Submit • Track</div>',
-    unsafe_allow_html=True,
-)
 
 
 # ============================================================
@@ -1127,7 +1061,6 @@ def add_working_days(
         current += timedelta(days=1)
 
         if is_working_day(current):
-
             added += 1
 
     return current
@@ -1177,7 +1110,6 @@ def calculate_remaining_days(
             current += timedelta(days=1)
 
             if is_working_day(current):
-
                 count += 1
 
         return count
@@ -1301,11 +1233,9 @@ def extract_json(text):
     text = text.strip()
 
     try:
-
         return json.loads(text)
 
     except Exception:
-
         pass
 
     match = re.search(
@@ -1323,7 +1253,6 @@ def extract_json(text):
             )
 
         except Exception:
-
             pass
 
     return None
@@ -1346,7 +1275,6 @@ def is_official_url(url):
             "http",
             "https",
         }:
-
             return False
 
         hostname = (
@@ -1505,7 +1433,7 @@ def read_official_page(url):
 # ============================================================
 
 def identify_service(
-    user_request
+    user_request,
 ):
 
     system_prompt = """
@@ -1588,7 +1516,7 @@ Rules:
 # ============================================================
 
 def generate_requirements(
-    service
+    service,
 ):
 
     system_prompt = """
@@ -1822,16 +1750,12 @@ OFFICIAL PAGE TEXT:
 # ============================================================
 
 def find_authorized_integration(
-    service_name
+    service_name,
 ):
 
-    service_name_lower = (
-        str(
-            service_name or ""
-        )
-        .strip()
-        .lower()
-    )
+    service_name_lower = str(
+        service_name or ""
+    ).strip().lower()
 
     if not service_name_lower:
         return None
@@ -2069,9 +1993,7 @@ def speech_to_text(
     )
 
     headers = {
-        "api-subscription-key": (
-            SARVAM_API_KEY
-        ),
+        "api-subscription-key": SARVAM_API_KEY,
     }
 
     files = {
@@ -2134,12 +2056,8 @@ def text_to_speech(
     )
 
     headers = {
-        "api-subscription-key": (
-            SARVAM_API_KEY
-        ),
-        "Content-Type": (
-            "application/json"
-        ),
+        "api-subscription-key": SARVAM_API_KEY,
+        "Content-Type": "application/json",
     }
 
     payload = {
@@ -2172,9 +2090,7 @@ def text_to_speech(
                 data.get("audios"),
                 list,
             )
-            else data.get(
-                "audio"
-            )
+            else data.get("audio")
         )
 
         if not audio_b64:
@@ -2237,16 +2153,12 @@ def submit_application(
     ).upper()
 
     headers = {
-        "Content-Type": (
-            "application/json"
-        )
+        "Content-Type": "application/json"
     }
 
-    extra_headers = (
-        integration.get(
-            "headers",
-            {},
-        )
+    extra_headers = integration.get(
+        "headers",
+        {},
     )
 
     if isinstance(
@@ -2347,9 +2259,7 @@ def submit_application(
 # LOCAL APPLICATION RECORD
 # ============================================================
 
-def save_application(
-    record
-):
+def save_application(record):
 
     connection = get_db()
 
@@ -2406,74 +2316,29 @@ def save_application(
         )
         """,
         (
-            record.get(
-                "application_id"
-            ),
+            record.get("application_id"),
+            record.get("service_name"),
+            record.get("category"),
+            record.get("jurisdiction"),
+            record.get("department"),
 
-            record.get(
-                "service_name"
-            ),
+            record.get("applicant_name"),
+            record.get("phone"),
+            record.get("email"),
+            record.get("address"),
+            record.get("additional_information"),
 
-            record.get(
-                "category"
-            ),
+            record.get("official_url"),
 
-            record.get(
-                "jurisdiction"
-            ),
+            record.get("submission_date"),
 
-            record.get(
-                "department"
-            ),
+            record.get("status"),
 
-            record.get(
-                "applicant_name"
-            ),
+            record.get("processing_days"),
+            record.get("processing_type"),
+            record.get("expected_completion_date"),
 
-            record.get(
-                "phone"
-            ),
-
-            record.get(
-                "email"
-            ),
-
-            record.get(
-                "address"
-            ),
-
-            record.get(
-                "additional_information"
-            ),
-
-            record.get(
-                "official_url"
-            ),
-
-            record.get(
-                "submission_date"
-            ),
-
-            record.get(
-                "status"
-            ),
-
-            record.get(
-                "processing_days"
-            ),
-
-            record.get(
-                "processing_type"
-            ),
-
-            record.get(
-                "expected_completion_date"
-            ),
-
-            record.get(
-                "timeline_source"
-            ),
-
+            record.get("timeline_source"),
             1 if record.get(
                 "timeline_verified"
             ) else 0,
@@ -2494,13 +2359,8 @@ def save_application(
                 ensure_ascii=False,
             ),
 
-            record.get(
-                "created_at"
-            ),
-
-            record.get(
-                "updated_at"
-            ),
+            record.get("created_at"),
+            record.get("updated_at"),
         ),
     )
 
@@ -2513,7 +2373,7 @@ def save_application(
 # ============================================================
 
 def fetch_status(
-    application_id
+    application_id,
 ):
 
     if GOVERNMENT_STATUS_URL:
@@ -2523,9 +2383,7 @@ def fetch_status(
             response = requests.post(
                 GOVERNMENT_STATUS_URL,
                 json={
-                    "application_id": (
-                        application_id
-                    )
+                    "application_id": application_id
                 },
                 timeout=REQUEST_TIMEOUT,
             )
@@ -2563,9 +2421,7 @@ def fetch_status(
     cursor.execute(
         """
         SELECT *
-
         FROM applications
-
         WHERE application_id = ?
         """,
         (
@@ -2598,6 +2454,273 @@ def fetch_status(
         ),
         "raw": dict(row),
     }
+
+
+# ============================================================
+# ENSURE CURRENT CONVERSATION
+# ============================================================
+
+ensure_conversation()
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.markdown("## 🧭 NextStep AI")
+
+    st.caption(
+        "AI-powered public-service assistant"
+    )
+
+    # --------------------------------------------------------
+    # GOOGLE ACCOUNT
+    # --------------------------------------------------------
+
+    st.markdown("### 👤 Account")
+
+    if CURRENT_USER_PICTURE:
+
+        st.image(
+            CURRENT_USER_PICTURE,
+            width=48,
+        )
+
+    st.markdown(
+        f"**{CURRENT_USER_NAME or 'Google User'}**"
+    )
+
+    st.caption(
+        CURRENT_USER_EMAIL
+    )
+
+    if st.button(
+        "🚪 Sign out",
+        use_container_width=True,
+    ):
+
+        st.logout()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # NEW CONVERSATION
+    # --------------------------------------------------------
+
+    if st.button(
+        "➕ New conversation",
+        type="primary",
+        use_container_width=True,
+    ):
+
+        current_id = st.session_state.get(
+            "conversation_id"
+        )
+
+        if current_id:
+            save_conversation_state()
+
+        new_id = create_conversation(
+            "New conversation"
+        )
+
+        reset_conversation_state()
+
+        st.session_state[
+            "conversation_id"
+        ] = new_id
+
+        st.session_state[
+            "language"
+        ] = "English"
+
+        st.rerun()
+
+    # --------------------------------------------------------
+    # LANGUAGE
+    # --------------------------------------------------------
+
+    language = st.selectbox(
+        "🌐 Language",
+        list(
+            LANGUAGE_CODES.keys()
+        ),
+        key="language",
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # PREVIOUS CONVERSATIONS
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 🕘 Previous conversations"
+    )
+
+    conversations = get_conversations()
+
+    if not conversations:
+
+        st.caption(
+            "No previous conversations yet."
+        )
+
+    else:
+
+        for conversation in conversations:
+
+            conversation_id = (
+                conversation[
+                    "conversation_id"
+                ]
+            )
+
+            title = (
+                conversation["title"]
+                or "New conversation"
+            )
+
+            if len(title) > 34:
+
+                title = (
+                    title[:34]
+                    + "..."
+                )
+
+            is_current = (
+                conversation_id
+                == st.session_state.get(
+                    "conversation_id"
+                )
+            )
+
+            col_open, col_delete = (
+                st.columns(
+                    [5, 1]
+                )
+            )
+
+            with col_open:
+
+                label = (
+                    "🟢 "
+                    if is_current
+                    else "💬 "
+                ) + title
+
+                if st.button(
+                    label,
+                    key=(
+                        "open_"
+                        + conversation_id
+                    ),
+                    use_container_width=True,
+                ):
+
+                    if not is_current:
+
+                        save_conversation_state()
+
+                        loaded = (
+                            load_conversation(
+                                conversation_id
+                            )
+                        )
+
+                        if loaded:
+                            st.rerun()
+
+            with col_delete:
+
+                if st.button(
+                    "🗑️",
+                    key=(
+                        "delete_"
+                        + conversation_id
+                    ),
+                    use_container_width=True,
+                ):
+
+                    delete_conversation(
+                        conversation_id
+                    )
+
+                    if is_current:
+
+                        reset_conversation_state()
+
+                        new_id = (
+                            create_conversation(
+                                "New conversation"
+                            )
+                        )
+
+                        st.session_state[
+                            "conversation_id"
+                        ] = new_id
+
+                    st.rerun()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # HOW IT WORKS
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### How it works"
+    )
+
+    st.markdown(
+        """
+        **1. Discover**  
+        Describe the government service.
+
+        **2. Verify**  
+        NextStep AI checks the official process.
+
+        **3. Safety check**  
+        CAPTCHA and other human-only barriers are detected.
+
+        **4. Prepare**  
+        Required information is collected only when needed.
+
+        **5. Submit**  
+        Submission happens only through an authorized integration.
+
+        **6. Track**  
+        Application status and processing timeline are shown.
+        """
+    )
+
+    st.divider()
+
+    st.caption(
+        "NextStep AI never bypasses CAPTCHA, OTP, biometric "
+        "verification, or other human-verification controls."
+    )
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    '<div class="main-title">🧭 NextStep AI</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="subtitle">Discover • Prepare • Submit • Track</div>',
+    unsafe_allow_html=True,
+)
+
+st.caption(
+    f"Signed in as {CURRENT_USER_EMAIL}"
+)
 
 
 # ============================================================
@@ -2789,75 +2912,27 @@ with assistant_tab:
                     "ready_to_submit"
                 ] = False
 
-                # ------------------------------------------------
-                # SAVE CONVERSATION
-                # ------------------------------------------------
+                add_conversation_message(
+                    "user",
+                    user_request.strip(),
+                )
 
-                if (
-                    st.session_state.get(
-                        "conversation_id"
-                    )
-                ):
-
-                    existing_request = (
-                        st.session_state.get(
-                            "_request_logged",
-                            "",
-                        )
-                    )
-
-                    if (
-                        existing_request
-                        != user_request.strip()
-                    ):
-
-                        add_conversation_message(
-                            "user",
-                            user_request.strip(),
-                        )
-
-                        title = (
-                            user_request.strip()
-                        )
-
-                        if len(title) > 60:
-
-                            title = (
-                                title[:57]
-                                + "..."
-                            )
-
-                        update_conversation_title(
-                            title
-                        )
-
-                        st.session_state[
-                            "_request_logged"
-                        ] = user_request.strip()
-
-                    assistant_summary = (
-                        "Service identified: "
+                add_conversation_message(
+                    "assistant",
+                    (
+                        "Identified service: "
                         + str(
                             result.get(
                                 "service_name",
                                 "Unknown",
                             )
                         )
-                    )
+                    ),
+                )
 
-                    add_conversation_message(
-                        "assistant",
-                        assistant_summary,
-                    )
-
-                    st.session_state[
-                        "last_ai_response"
-                    ] = assistant_summary
-
-                    save_conversation_state()
+                save_conversation_state()
 
                 st.rerun()
-
 
     # ========================================================
     # IDENTIFIED SERVICE
@@ -2934,9 +3009,11 @@ with assistant_tab:
             # OFFICIAL URL
             # ------------------------------------------------
 
-            official_url = st.session_state.get(
-                "official_url",
-                "",
+            official_url = (
+                st.session_state.get(
+                    "official_url",
+                    "",
+                )
             )
 
             if (
@@ -3037,6 +3114,21 @@ with assistant_tab:
                                 "timeline"
                             ] = timeline
 
+                            add_conversation_message(
+                                "assistant",
+                                (
+                                    "Official application process "
+                                    "checked for "
+                                    + str(
+                                        service.get(
+                                            "service_name",
+                                            "the service",
+                                        )
+                                    )
+                                    + "."
+                                ),
+                            )
+
                             save_conversation_state()
 
                             st.success(
@@ -3118,7 +3210,9 @@ with assistant_tab:
                         "🚫 Automatic AI submission is not supported for this service."
                     )
 
-                    for barrier in blocking_barriers:
+                    for barrier in (
+                        blocking_barriers
+                    ):
 
                         barrier_type = (
                             barrier.get(
@@ -3140,7 +3234,6 @@ with assistant_tab:
                         )
 
                         if evidence:
-
                             st.caption(
                                 evidence
                             )
@@ -3256,10 +3349,17 @@ with assistant_tab:
 
                     add_conversation_message(
                         "user",
-                        "Yes, apply for me",
+                        "Yes, apply for me.",
                     )
 
-                    save_conversation_state()
+                    add_conversation_message(
+                        "assistant",
+                        (
+                            "Application Mode enabled. "
+                            "NextStep AI will collect only "
+                            "the information needed for the application."
+                        ),
+                    )
 
                     st.rerun()
 
@@ -3290,10 +3390,16 @@ with assistant_tab:
 
                 add_conversation_message(
                     "user",
-                    "No, only show requirements",
+                    "No, only show requirements.",
                 )
 
-                save_conversation_state()
+                add_conversation_message(
+                    "assistant",
+                    (
+                        "Showing the service requirements "
+                        "and official government portal."
+                    ),
+                )
 
                 st.rerun()
 
@@ -3389,17 +3495,17 @@ with assistant_tab:
                         "#### Information you may need"
                     )
 
-                    for item in information_needed:
+                    for item in (
+                        information_needed
+                    ):
 
                         st.markdown(
                             f"- {item}"
                         )
 
-                warnings = (
-                    requirements.get(
-                        "warnings",
-                        [],
-                    )
+                warnings = requirements.get(
+                    "warnings",
+                    [],
                 )
 
                 if warnings:
@@ -3490,8 +3596,6 @@ with application_tab:
                 "application_mode"
             ] = False
 
-            save_conversation_state()
-
         else:
 
             st.success(
@@ -3563,20 +3667,29 @@ with application_tab:
                 "application_form"
             ):
 
-                applicant_name = st.text_input(
-                    "Full name *"
+                applicant_name = (
+                    st.text_input(
+                        "Full name *"
+                    )
                 )
 
-                phone = st.text_input(
-                    "Phone number *"
+                phone = (
+                    st.text_input(
+                        "Phone number *"
+                    )
                 )
 
-                email = st.text_input(
-                    "Email address"
+                email = (
+                    st.text_input(
+                        "Email address",
+                        value=CURRENT_USER_EMAIL,
+                    )
                 )
 
-                address = st.text_area(
-                    "Address"
+                address = (
+                    st.text_area(
+                        "Address"
+                    )
                 )
 
                 additional_information = (
@@ -3589,14 +3702,18 @@ with application_tab:
                     "### Step 3: Review and authorization"
                 )
 
-                authorization = st.checkbox(
-                    "I authorize NextStep AI to submit the above application through the configured authorized government integration."
+                authorization = (
+                    st.checkbox(
+                        "I authorize NextStep AI to submit the above application through the configured authorized government integration."
+                    )
                 )
 
-                submitted = st.form_submit_button(
-                    "🚀 Review & Submit Application",
-                    type="primary",
-                    use_container_width=True,
+                submitted = (
+                    st.form_submit_button(
+                        "🚀 Review & Submit Application",
+                        type="primary",
+                        use_container_width=True,
+                    )
                 )
 
             if submitted:
@@ -3686,8 +3803,6 @@ with application_tab:
                         "ready_to_submit"
                     ] = True
 
-                    save_conversation_state()
-
                     st.rerun()
 
             # ------------------------------------------------
@@ -3712,11 +3827,9 @@ with application_tab:
                     )
                 )
 
-                applicant = (
-                    payload.get(
-                        "applicant",
-                        {},
-                    )
+                applicant = payload.get(
+                    "applicant",
+                    {},
                 )
 
                 review_col1, review_col2 = (
@@ -3783,8 +3896,6 @@ with application_tab:
                         "ready_to_submit"
                     ] = False
 
-                    save_conversation_state()
-
                     st.rerun()
 
                 if final_submit:
@@ -3820,7 +3931,9 @@ with application_tab:
                             "application_id"
                         ] = application_id
 
-                        submission_date = date.today()
+                        submission_date = (
+                            date.today()
+                        )
 
                         timeline = (
                             st.session_state.get(
@@ -3856,7 +3969,8 @@ with application_tab:
                         )
 
                         now = (
-                            datetime.now().isoformat()
+                            datetime.now()
+                            .isoformat()
                         )
 
                         record = {
@@ -3984,20 +4098,14 @@ with application_tab:
                         ] = False
 
                         st.session_state[
-                            "last_ai_response"
-                        ] = (
-                            "Application submitted successfully. "
-                            "Application ID: "
-                            + str(
-                                application_id
-                            )
-                        )
+                            "pending_application_payload"
+                        ] = None
 
                         add_conversation_message(
                             "assistant",
                             (
                                 "Application submitted successfully. "
-                                "Application ID: "
+                                "Application/reference number: "
                                 + str(
                                     application_id
                                 )
@@ -4051,6 +4159,14 @@ with application_tab:
                             )
                         )
 
+                        add_conversation_message(
+                            "assistant",
+                            (
+                                "Government application submission "
+                                "failed. No fake application ID was created."
+                            ),
+                        )
+
                         st.info(
                             "No fake application ID was created. "
                             "Please use the official portal if necessary."
@@ -4067,14 +4183,16 @@ with status_tab:
         "## 📊 Application Status"
     )
 
-    application_id_input = st.text_input(
-        "Enter your application/reference number",
-        value=(
-            st.session_state.get(
-                "application_id"
-            )
-            or ""
-        ),
+    application_id_input = (
+        st.text_input(
+            "Enter your application/reference number",
+            value=(
+                st.session_state.get(
+                    "application_id"
+                )
+                or ""
+            ),
+        )
     )
 
     if st.button(
@@ -4095,8 +4213,10 @@ with status_tab:
                 "Checking application status..."
             ):
 
-                status_result = fetch_status(
-                    application_id_input.strip()
+                status_result = (
+                    fetch_status(
+                        application_id_input.strip()
+                    )
                 )
 
             if not status_result.get(
@@ -4191,7 +4311,6 @@ with status_tab:
                         )
 
                     except Exception:
-
                         pass
 
                 if (
