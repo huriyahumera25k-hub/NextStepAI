@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 import base64
+import uuid
 
 from datetime import datetime, date, timedelta
 from urllib.parse import urlparse
@@ -110,6 +111,8 @@ DEFAULT_STATE = {
     "last_ai_response": "",
 
     "language": "English",
+
+    "_request_logged": "",
 }
 
 
@@ -264,6 +267,11 @@ st.markdown(
         opacity: 0.7;
     }
 
+    .conversation-title {
+        font-weight: 600;
+        font-size: 14px;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -390,24 +398,36 @@ init_database()
 # ============================================================
 
 CONVERSATION_STATE_KEYS = [
+
     "typed_service_request",
     "voice_text",
+
     "service_identified",
     "identified_service",
+
     "application_decision",
     "application_mode",
+
     "requirements",
     "timeline",
+
     "official_url",
     "official_page_text",
+
     "barrier_check",
     "submission_capability",
+
     "application_id",
     "submission_result",
+
     "pending_application_payload",
     "ready_to_submit",
+
     "last_ai_response",
+
     "language",
+
+    "_request_logged",
 ]
 
 
@@ -466,7 +486,7 @@ def create_conversation(
 ):
 
     conversation_id = str(
-        __import__("uuid").uuid4()
+        uuid.uuid4()
     )
 
     now = datetime.now().isoformat()
@@ -563,6 +583,7 @@ def update_conversation_title(
         return
 
     if len(title) > 60:
+
         title = title[:57] + "..."
 
     connection = get_db()
@@ -729,10 +750,14 @@ def delete_conversation(
     conversation_id,
 ):
 
+    if not conversation_id:
+        return
+
     connection = get_db()
 
     cursor = connection.cursor()
 
+    # Delete all messages belonging to this conversation
     cursor.execute(
         """
         DELETE FROM conversation_messages
@@ -744,6 +769,7 @@ def delete_conversation(
         ),
     )
 
+    # Delete the conversation itself
     cursor.execute(
         """
         DELETE FROM conversations
@@ -766,7 +792,9 @@ def ensure_current_conversation():
     ):
         return
 
-    conversation_id = create_conversation()
+    conversation_id = create_conversation(
+        "New Conversation"
+    )
 
     st.session_state[
         "conversation_id"
@@ -792,9 +820,9 @@ with st.sidebar:
         "AI-powered public-service assistant"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # NEW CONVERSATION
-    # --------------------------------------------------------
+    # ========================================================
 
     if st.button(
         "➕ New Conversation",
@@ -802,9 +830,12 @@ with st.sidebar:
         type="primary",
     ):
 
+        # Save current conversation before creating another
         save_conversation_state()
 
-        new_id = create_conversation()
+        new_id = create_conversation(
+            "New Conversation"
+        )
 
         reset_conversation_state()
 
@@ -812,13 +843,15 @@ with st.sidebar:
             "conversation_id"
         ] = new_id
 
+        save_conversation_state()
+
         st.rerun()
 
     st.divider()
 
-    # --------------------------------------------------------
+    # ========================================================
     # CONVERSATION HISTORY
-    # --------------------------------------------------------
+    # ========================================================
 
     st.markdown(
         "### 🕘 Previous Conversations"
@@ -833,7 +866,7 @@ with st.sidebar:
     if not conversations:
 
         st.caption(
-            "No previous conversations yet."
+            "No conversations yet."
         )
 
     else:
@@ -844,51 +877,164 @@ with st.sidebar:
                 "conversation_id"
             ]
 
-            title = conversation[
-                "title"
-            ] or "New Conversation"
+            title = (
+                conversation["title"]
+                or "New Conversation"
+            )
 
-            if len(title) > 38:
-                title = title[:35] + "..."
+            # Clean empty/untitled conversations
+            if not title.strip():
+
+                title = "New Conversation"
+
+            # Short display title
+            display_title = title
+
+            if len(display_title) > 32:
+
+                display_title = (
+                    display_title[:29]
+                    + "..."
+                )
 
             is_current = (
                 conversation_id
                 == current_id
             )
 
-            button_label = (
-                f"🟢 {title}"
-                if is_current
-                else f"💬 {title}"
+            # ------------------------------------------------
+            # EACH CONVERSATION GETS TWO BUTTONS:
+            # OPEN + DELETE
+            # ------------------------------------------------
+
+            open_col, delete_col = st.columns(
+                [5, 1],
+                gap="small",
             )
 
-            if st.button(
-                button_label,
-                key=(
-                    "open_conversation_"
-                    + conversation_id
-                ),
-                use_container_width=True,
-            ):
+            with open_col:
 
-                if conversation_id != current_id:
+                if is_current:
 
-                    save_conversation_state()
+                    button_label = (
+                        f"🟢 {display_title}"
+                    )
 
-                    load_conversation(
+                else:
+
+                    button_label = (
+                        f"💬 {display_title}"
+                    )
+
+                if st.button(
+                    button_label,
+                    key=(
+                        "open_conversation_"
+                        + conversation_id
+                    ),
+                    use_container_width=True,
+                ):
+
+                    if conversation_id != current_id:
+
+                        save_conversation_state()
+
+                        loaded = load_conversation(
+                            conversation_id
+                        )
+
+                        if loaded:
+
+                            st.rerun()
+
+            with delete_col:
+
+                if st.button(
+                    "🗑️",
+                    key=(
+                        "delete_conversation_"
+                        + conversation_id
+                    ),
+                    help=(
+                        "Delete this conversation"
+                    ),
+                    use_container_width=True,
+                ):
+
+                    deleting_current = (
+                        conversation_id
+                        == current_id
+                    )
+
+                    delete_conversation(
                         conversation_id
                     )
+
+                    # If current conversation was deleted,
+                    # immediately create a fresh conversation.
+                    if deleting_current:
+
+                        reset_conversation_state()
+
+                        new_id = create_conversation(
+                            "New Conversation"
+                        )
+
+                        st.session_state[
+                            "conversation_id"
+                        ] = new_id
+
+                        save_conversation_state()
 
                     st.rerun()
 
     st.divider()
 
-    # --------------------------------------------------------
-    # DELETE CURRENT CONVERSATION
-    # --------------------------------------------------------
+    # ========================================================
+    # CURRENT CONVERSATION
+    # ========================================================
+
+    current_conversation_id = (
+        st.session_state.get(
+            "conversation_id"
+        )
+    )
+
+    current_title = "New Conversation"
+
+    if current_conversation_id:
+
+        connection = get_db()
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT title
+
+            FROM conversations
+
+            WHERE conversation_id = ?
+            """,
+            (
+                current_conversation_id,
+            ),
+        )
+
+        row = cursor.fetchone()
+
+        connection.close()
+
+        if row and row["title"]:
+
+            current_title = row["title"]
 
     st.markdown(
-        "### 🗑️ Conversation"
+        "### 💬 Current Conversation"
+    )
+
+    st.caption(
+        current_title
     )
 
     if st.button(
@@ -908,25 +1054,31 @@ with st.sidebar:
                 current_conversation
             )
 
-        new_id = create_conversation()
-
         reset_conversation_state()
+
+        new_id = create_conversation(
+            "New Conversation"
+        )
 
         st.session_state[
             "conversation_id"
         ] = new_id
 
+        save_conversation_state()
+
         st.rerun()
 
     st.divider()
 
-    # --------------------------------------------------------
+    # ========================================================
     # LANGUAGE
-    # --------------------------------------------------------
+    # ========================================================
 
-    current_language = st.session_state.get(
-        "language",
-        "English",
+    current_language = (
+        st.session_state.get(
+            "language",
+            "English",
+        )
     )
 
     language_index = 0
@@ -949,11 +1101,14 @@ with st.sidebar:
         "language"
     ] = language
 
+    # Save language change
+    save_conversation_state()
+
     st.divider()
 
-    # --------------------------------------------------------
+    # ========================================================
     # HOW IT WORKS
-    # --------------------------------------------------------
+    # ========================================================
 
     st.markdown(
         "### How it works"
@@ -987,73 +1142,6 @@ with st.sidebar:
         "NextStep AI never bypasses CAPTCHA, OTP, biometric "
         "verification, or other human-verification controls."
     )
-
-
-# ============================================================
-# CSS
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    .main-title {
-        font-size: 42px;
-        font-weight: 800;
-        margin-bottom: 0;
-    }
-
-    .subtitle {
-        font-size: 17px;
-        opacity: 0.75;
-        margin-top: 4px;
-        margin-bottom: 24px;
-    }
-
-    .service-box {
-        padding: 20px;
-        border-radius: 16px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 16px;
-    }
-
-    .success-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(50,180,100,0.35);
-        background: rgba(50,180,100,0.08);
-    }
-
-    .warning-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(220,170,50,0.35);
-        background: rgba(220,170,50,0.08);
-    }
-
-    .danger-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(220,70,70,0.35);
-        background: rgba(220,70,70,0.08);
-    }
-
-    .info-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(80,130,220,0.35);
-        background: rgba(80,130,220,0.08);
-    }
-
-    .small-muted {
-        font-size: 13px;
-        opacity: 0.7;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 
 # ============================================================
@@ -2360,6 +2448,7 @@ def save_application(
         INSERT OR REPLACE INTO applications (
 
             application_id,
+
             service_name,
             category,
             jurisdiction,
@@ -2627,9 +2716,9 @@ with assistant_tab:
         "You can type your request or use your microphone."
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # VOICE INPUT
-    # --------------------------------------------------------
+    # ========================================================
 
     voice_audio = st.audio_input(
         "🎙️ Speak your request"
@@ -2671,9 +2760,9 @@ with assistant_tab:
                 "Please try again or type your request."
             )
 
-    # --------------------------------------------------------
+    # ========================================================
     # TEXT INPUT
-    # --------------------------------------------------------
+    # ========================================================
 
     user_request = st.text_area(
         "Describe the service",
@@ -2790,16 +2879,16 @@ with assistant_tab:
                 ] = False
 
                 # ------------------------------------------------
-                # SAVE CONVERSATION
+                # SAVE USER REQUEST
                 # ------------------------------------------------
 
-                if (
-                    st.session_state.get(
-                        "conversation_id"
-                    )
-                ):
+                clean_request = (
+                    user_request.strip()
+                )
 
-                    existing_request = (
+                if clean_request:
+
+                    previous_request = (
                         st.session_state.get(
                             "_request_logged",
                             "",
@@ -2807,19 +2896,34 @@ with assistant_tab:
                     )
 
                     if (
-                        existing_request
-                        != user_request.strip()
+                        previous_request
+                        != clean_request
                     ):
 
                         add_conversation_message(
                             "user",
-                            user_request.strip(),
+                            clean_request,
                         )
 
-                        title = (
-                            user_request.strip()
-                        )
+                        # ------------------------------------------------
+                        # AUTOMATIC CONVERSATION NAME
+                        # ------------------------------------------------
+                        #
+                        # The first request becomes the conversation
+                        # title. This means every conversation gets
+                        # its own meaningful name.
+                        #
 
+                        title = clean_request
+
+                        # Remove excessive whitespace
+                        title = re.sub(
+                            r"\s+",
+                            " ",
+                            title,
+                        ).strip()
+
+                        # Make it title-like when possible
                         if len(title) > 60:
 
                             title = (
@@ -2833,31 +2937,30 @@ with assistant_tab:
 
                         st.session_state[
                             "_request_logged"
-                        ] = user_request.strip()
+                        ] = clean_request
 
-                    assistant_summary = (
-                        "Service identified: "
-                        + str(
-                            result.get(
-                                "service_name",
-                                "Unknown",
-                            )
+                assistant_summary = (
+                    "Service identified: "
+                    + str(
+                        result.get(
+                            "service_name",
+                            "Unknown",
                         )
                     )
+                )
 
-                    add_conversation_message(
-                        "assistant",
-                        assistant_summary,
-                    )
+                add_conversation_message(
+                    "assistant",
+                    assistant_summary,
+                )
 
-                    st.session_state[
-                        "last_ai_response"
-                    ] = assistant_summary
+                st.session_state[
+                    "last_ai_response"
+                ] = assistant_summary
 
-                    save_conversation_state()
+                save_conversation_state()
 
                 st.rerun()
-
 
     # ========================================================
     # IDENTIFIED SERVICE
@@ -2930,9 +3033,9 @@ with assistant_tab:
                 )
             )
 
-            # ------------------------------------------------
+            # ====================================================
             # OFFICIAL URL
-            # ------------------------------------------------
+            # ====================================================
 
             official_url = st.session_state.get(
                 "official_url",
@@ -2963,9 +3066,9 @@ with assistant_tab:
                     "could not be established automatically."
                 )
 
-            # ------------------------------------------------
+            # ====================================================
             # VERIFY OFFICIAL PAGE
-            # ------------------------------------------------
+            # ====================================================
 
             if (
                 official_url
@@ -3058,9 +3161,9 @@ with assistant_tab:
                                 )
                             )
 
-            # ------------------------------------------------
+            # ====================================================
             # BARRIER RESULT
-            # ------------------------------------------------
+            # ====================================================
 
             barrier_check = (
                 st.session_state.get(
@@ -3197,9 +3300,9 @@ with assistant_tab:
                             f"- {step}"
                         )
 
-            # ------------------------------------------------
+            # ====================================================
             # APPLICATION DECISION
-            # ------------------------------------------------
+            # ====================================================
 
             st.divider()
 
@@ -3297,9 +3400,9 @@ with assistant_tab:
 
                 st.rerun()
 
-            # ------------------------------------------------
+            # ====================================================
             # REQUIREMENTS FOR NO MODE
-            # ------------------------------------------------
+            # ====================================================
 
             if (
                 st.session_state.get(
@@ -3546,9 +3649,9 @@ with application_tab:
 
             st.divider()
 
-            # ------------------------------------------------
+            # ====================================================
             # APPLICANT FORM
-            # ------------------------------------------------
+            # ====================================================
 
             st.markdown(
                 "### Step 2: Applicant information"
@@ -3690,9 +3793,9 @@ with application_tab:
 
                     st.rerun()
 
-            # ------------------------------------------------
+            # ====================================================
             # FINAL REVIEW
-            # ------------------------------------------------
+            # ====================================================
 
             if st.session_state.get(
                 "ready_to_submit",
