@@ -5,6 +5,7 @@ import re
 import sqlite3
 import base64
 import uuid
+import html
 
 from datetime import datetime, date, timedelta
 from urllib.parse import urlparse
@@ -64,16 +65,367 @@ TTS_SUPPORTED = {
 }
 
 
-BLOCKING_BARRIERS = {
-    "captcha",
-    "recaptcha",
-    "hcaptcha",
-    "cloudflare_turnstile",
-    "biometric",
-    "physical_verification",
-    "mandatory_physical_presence",
-    "human_verification",
-    "manual_verification",
+# ============================================================
+# OFFICIAL SERVICE REGISTRY
+# ============================================================
+#
+# These are intentionally direct, known official resources.
+# The app does NOT invent a government submission endpoint.
+#
+# Actual authentication, OTP, CAPTCHA, payment and final
+# submission remain on the official government portal.
+#
+
+SERVICE_REGISTRY = {
+
+    "income_certificate": {
+        "keywords": [
+            "income certificate",
+            "income cert",
+            "income proof",
+            "annual income certificate",
+            "income document",
+            "income certificate telangana",
+            "income certificate ts",
+        ],
+        "service_name": "Income Certificate",
+        "service_category": "Certificate",
+        "jurisdiction": "Telangana",
+        "department": "Revenue Department",
+
+        "portal_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+        ),
+
+        "state_service_url": (
+            "https://www.telangana.gov.in/services/state-services/"
+        ),
+
+        "form_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+            "meeseva/downloadzip.htm?"
+            "filename=IncomeGeneralApplicationForm.pdf"
+        ),
+
+        "steps": [
+            "Open the official Telangana MeeSeva portal.",
+            "Select the Income Certificate service.",
+            "Enter the applicant details requested by MeeSeva.",
+            "Upload the documents requested by the official portal.",
+            "Review the entered information.",
+            "Complete any authentication, payment or verification required by MeeSeva.",
+            "Submit the application on the official government portal.",
+            "Save the application/reference number."
+        ],
+
+        "requirements": [
+            {
+                "name": "Applicant details",
+                "description": (
+                    "The official application form contains "
+                    "applicant and relationship details."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Address details",
+                "description": (
+                    "Village/town, locality, mandal and district "
+                    "information may be required."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Income information",
+                "description": (
+                    "The application concerns annual income from "
+                    "all sources."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Supporting documents",
+                "description": (
+                    "Upload the documents requested by the official "
+                    "MeeSeva application."
+                ),
+                "mandatory": True,
+            },
+        ],
+
+        "note": (
+            "The Telangana State Portal lists Income Certificate "
+            "as an online state service. The official Telangana "
+            "portal also publishes the Income Certificate form."
+        ),
+    },
+
+    "caste_certificate": {
+        "keywords": [
+            "caste certificate",
+            "caste cert",
+            "community certificate",
+            "sc certificate",
+            "st certificate",
+            "bc certificate",
+            "obc certificate",
+        ],
+        "service_name": "Caste Certificate",
+        "service_category": "Certificate",
+        "jurisdiction": "Telangana",
+        "department": "Revenue Department",
+
+        "portal_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+        ),
+
+        "state_service_url": (
+            "https://www.telangana.gov.in/services/state-services/"
+        ),
+
+        "form_url": "",
+
+        "steps": [
+            "Open the official Telangana MeeSeva portal.",
+            "Select the appropriate Caste/Community Certificate service.",
+            "Enter the applicant information requested by MeeSeva.",
+            "Upload the documents requested by the official portal.",
+            "Review the application.",
+            "Complete any required authentication or verification.",
+            "Submit the application through the official portal.",
+            "Save the application/reference number."
+        ],
+
+        "requirements": [
+            {
+                "name": "Applicant information",
+                "description": (
+                    "Provide the information requested by the "
+                    "official application."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Address information",
+                "description": (
+                    "Provide the jurisdiction/address information "
+                    "requested by the portal."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Supporting documents",
+                "description": (
+                    "Use the current document requirements shown "
+                    "by the official MeeSeva service."
+                ),
+                "mandatory": True,
+            },
+        ],
+
+        "note": (
+            "The Telangana State Portal lists online Caste "
+            "Certificate application under the Revenue Department."
+        ),
+    },
+
+    "residence_certificate": {
+        "keywords": [
+            "residence certificate",
+            "residential certificate",
+            "domicile certificate",
+            "nativity certificate",
+            "residence proof",
+        ],
+        "service_name": "Residence / Domicile Certificate",
+        "service_category": "Certificate",
+        "jurisdiction": "Telangana",
+        "department": "Revenue Department",
+
+        "portal_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+        ),
+
+        "state_service_url": (
+            "https://www.telangana.gov.in/services/state-services/"
+        ),
+
+        "form_url": "",
+
+        "steps": [
+            "Open the official Telangana MeeSeva portal.",
+            "Select the Residence/Domicile service.",
+            "Enter the requested applicant details.",
+            "Upload the documents requested by the official portal.",
+            "Review the information.",
+            "Complete any required authentication or verification.",
+            "Submit through the official government portal.",
+            "Save the application/reference number."
+        ],
+
+        "requirements": [
+            {
+                "name": "Applicant information",
+                "description": (
+                    "Provide the details requested by the official portal."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Residence information",
+                "description": (
+                    "Provide current/residential information requested "
+                    "by the application."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Supporting documents",
+                "description": (
+                    "Follow the current document checklist shown by "
+                    "MeeSeva."
+                ),
+                "mandatory": True,
+            },
+        ],
+
+        "note": (
+            "The Telangana State Portal lists Domicile/Residence "
+            "Certificate under Revenue Department services."
+        ),
+    },
+
+    "birth_certificate": {
+        "keywords": [
+            "birth certificate",
+            "birth registration",
+            "birth cert",
+        ],
+        "service_name": "Birth Certificate",
+        "service_category": "Certificate",
+        "jurisdiction": "Telangana",
+        "department": "Municipal Administration & Urban Development",
+
+        "portal_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+        ),
+
+        "state_service_url": (
+            "https://www.telangana.gov.in/services/state-services/"
+        ),
+
+        "form_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+            "meeseva/downloadzip.htm?"
+            "filename=CDMAAPPLICATIONFORBIRTHCERTIFICATE.pdf"
+        ),
+
+        "steps": [
+            "Open the official Telangana government service portal.",
+            "Select the Birth Certificate service.",
+            "Enter the requested birth-registration information.",
+            "Upload the documents requested by the official service.",
+            "Review the application.",
+            "Complete any required verification or payment.",
+            "Submit through the official government portal.",
+            "Save the application/reference number."
+        ],
+
+        "requirements": [
+            {
+                "name": "Birth details",
+                "description": (
+                    "Provide the information requested about the birth."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Applicant/parent information",
+                "description": (
+                    "Provide the details requested by the official form."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Supporting documents",
+                "description": (
+                    "Follow the current official document requirements."
+                ),
+                "mandatory": True,
+            },
+        ],
+
+        "note": (
+            "The Telangana State Portal lists Birth Certificate "
+            "as a state service."
+        ),
+    },
+
+    "death_certificate": {
+        "keywords": [
+            "death certificate",
+            "death registration",
+            "death cert",
+        ],
+        "service_name": "Death Certificate",
+        "service_category": "Certificate",
+        "jurisdiction": "Telangana",
+        "department": "Municipal Administration & Urban Development",
+
+        "portal_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+        ),
+
+        "state_service_url": (
+            "https://www.telangana.gov.in/services/state-services/"
+        ),
+
+        "form_url": (
+            "https://ts.meeseva.telangana.gov.in/"
+            "meeseva/downloadzip.htm?"
+            "filename=CDMAAPPLICATIONFORDEATHCERTIFICATE.pdf"
+        ),
+
+        "steps": [
+            "Open the official Telangana government service portal.",
+            "Select the Death Certificate service.",
+            "Enter the requested registration information.",
+            "Upload the documents requested by the official service.",
+            "Review the application.",
+            "Complete any required verification or payment.",
+            "Submit through the official government portal.",
+            "Save the application/reference number."
+        ],
+
+        "requirements": [
+            {
+                "name": "Death details",
+                "description": (
+                    "Provide the information requested about the death."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Applicant information",
+                "description": (
+                    "Provide the details requested by the official form."
+                ),
+                "mandatory": True,
+            },
+            {
+                "name": "Supporting documents",
+                "description": (
+                    "Follow the current official document requirements."
+                ),
+                "mandatory": True,
+            },
+        ],
+
+        "note": (
+            "The Telangana State Portal lists Death Certificate "
+            "as a state service."
+        ),
+    },
 }
 
 
@@ -82,6 +434,7 @@ BLOCKING_BARRIERS = {
 # ============================================================
 
 DEFAULT_STATE = {
+
     "conversation_id": None,
 
     "typed_service_request": "",
@@ -90,23 +443,23 @@ DEFAULT_STATE = {
     "service_identified": False,
     "identified_service": None,
 
-    "application_decision": None,
-    "application_mode": False,
+    "workflow_active": False,
+    "workflow_step": 0,
 
     "requirements": None,
-    "timeline": None,
 
     "official_url": "",
-    "official_page_text": "",
+    "official_form_url": "",
+    "official_state_url": "",
 
-    "barrier_check": None,
-    "submission_capability": None,
+    "applicant_name": "",
+    "phone": "",
+    "email": "",
+    "address": "",
+    "additional_information": "",
 
     "application_id": None,
     "submission_result": None,
-
-    "pending_application_payload": None,
-    "ready_to_submit": False,
 
     "last_ai_response": "",
 
@@ -119,22 +472,17 @@ DEFAULT_STATE = {
 for key, value in DEFAULT_STATE.items():
 
     if key not in st.session_state:
-
         st.session_state[key] = value
 
 
 # ============================================================
-# SECRETS HELPERS
+# SECRETS
 # ============================================================
 
 def get_secret(name, default=""):
 
     try:
-
-        value = st.secrets.get(
-            name,
-            default,
-        )
+        value = st.secrets.get(name, default)
 
         if value is None:
             return default
@@ -142,7 +490,6 @@ def get_secret(name, default=""):
         return str(value).strip()
 
     except Exception:
-
         return default
 
 
@@ -159,50 +506,9 @@ SARVAM_API_KEY = get_secret(
     "SARVAM_API_KEY"
 )
 
-GOVERNMENT_SUBMISSION_URL = get_secret(
-    "GOVERNMENT_SUBMISSION_URL"
-)
-
-GOVERNMENT_STATUS_URL = get_secret(
-    "GOVERNMENT_STATUS_URL"
-)
-
 HOLIDAYS_RAW = get_secret(
     "HOLIDAYS",
     "[]",
-)
-
-
-# ============================================================
-# OPTIONAL SERVICE INTEGRATION REGISTRY
-# ============================================================
-
-def load_integration_registry():
-
-    raw = get_secret(
-        "GOVERNMENT_INTEGRATIONS",
-        "",
-    )
-
-    if not raw:
-        return []
-
-    try:
-
-        parsed = json.loads(raw)
-
-        if isinstance(parsed, list):
-            return parsed
-
-        return []
-
-    except Exception:
-
-        return []
-
-
-GOVERNMENT_INTEGRATIONS = (
-    load_integration_registry()
 )
 
 
@@ -215,56 +521,71 @@ st.markdown(
     <style>
 
     .main-title {
-        font-size: 42px;
-        font-weight: 800;
+        font-size: 44px;
+        font-weight: 850;
+        letter-spacing: -1.5px;
         margin-bottom: 0;
     }
 
     .subtitle {
         font-size: 17px;
-        opacity: 0.75;
+        opacity: 0.70;
         margin-top: 4px;
-        margin-bottom: 24px;
+        margin-bottom: 22px;
     }
 
-    .service-box {
-        padding: 20px;
+    .hero-card {
+        padding: 28px;
+        border-radius: 22px;
+        border: 1px solid rgba(128,128,128,0.22);
+        background: linear-gradient(
+            135deg,
+            rgba(80,120,255,0.10),
+            rgba(120,80,220,0.05)
+        );
+        margin-bottom: 20px;
+    }
+
+    .workflow-card {
+        padding: 22px;
+        border-radius: 18px;
+        border: 1px solid rgba(128,128,128,0.22);
+        margin: 12px 0;
+    }
+
+    .step-active {
+        padding: 18px;
         border-radius: 16px;
-        border: 1px solid rgba(128,128,128,0.25);
+        border: 2px solid rgba(80,120,255,0.55);
+        background: rgba(80,120,255,0.08);
         margin-bottom: 16px;
     }
 
-    .success-box {
-        padding: 18px;
+    .step-complete {
+        padding: 15px;
         border-radius: 14px;
         border: 1px solid rgba(50,180,100,0.35);
         background: rgba(50,180,100,0.08);
-    }
-
-    .warning-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(220,170,50,0.35);
-        background: rgba(220,170,50,0.08);
-    }
-
-    .danger-box {
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(220,70,70,0.35);
-        background: rgba(220,70,70,0.08);
+        margin-bottom: 10px;
     }
 
     .info-box {
         padding: 18px;
-        border-radius: 14px;
+        border-radius: 15px;
         border: 1px solid rgba(80,130,220,0.35);
         background: rgba(80,130,220,0.08);
     }
 
+    .warning-box {
+        padding: 18px;
+        border-radius: 15px;
+        border: 1px solid rgba(220,170,50,0.35);
+        background: rgba(220,170,50,0.08);
+    }
+
     .small-muted {
         font-size: 13px;
-        opacity: 0.7;
+        opacity: 0.68;
     }
 
     .conversation-title {
@@ -300,54 +621,6 @@ def init_database():
 
     cursor = connection.cursor()
 
-    # --------------------------------------------------------
-    # APPLICATIONS
-    # --------------------------------------------------------
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS applications (
-
-            application_id TEXT PRIMARY KEY,
-
-            service_name TEXT,
-            category TEXT,
-            jurisdiction TEXT,
-            department TEXT,
-
-            applicant_name TEXT,
-            phone TEXT,
-            email TEXT,
-            address TEXT,
-            additional_information TEXT,
-
-            official_url TEXT,
-
-            submission_date TEXT,
-
-            status TEXT,
-
-            processing_days INTEGER,
-            processing_type TEXT,
-            expected_completion_date TEXT,
-
-            timeline_source TEXT,
-            timeline_verified INTEGER,
-
-            ai_submission_supported INTEGER,
-            barrier_detected INTEGER,
-            barrier_details TEXT,
-
-            created_at TEXT,
-            updated_at TEXT
-        )
-        """
-    )
-
-    # --------------------------------------------------------
-    # CONVERSATIONS
-    # --------------------------------------------------------
-
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS conversations (
@@ -365,10 +638,6 @@ def init_database():
         """
     )
 
-    # --------------------------------------------------------
-    # CONVERSATION MESSAGES
-    # --------------------------------------------------------
-
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS conversation_messages (
@@ -382,6 +651,43 @@ def init_database():
             content TEXT NOT NULL,
 
             created_at TEXT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS applications (
+
+            application_id TEXT PRIMARY KEY,
+
+            service_name TEXT,
+
+            category TEXT,
+
+            jurisdiction TEXT,
+
+            department TEXT,
+
+            applicant_name TEXT,
+
+            phone TEXT,
+
+            email TEXT,
+
+            address TEXT,
+
+            additional_information TEXT,
+
+            official_url TEXT,
+
+            submission_date TEXT,
+
+            status TEXT,
+
+            created_at TEXT,
+
+            updated_at TEXT
         )
         """
     )
@@ -405,23 +711,23 @@ CONVERSATION_STATE_KEYS = [
     "service_identified",
     "identified_service",
 
-    "application_decision",
-    "application_mode",
+    "workflow_active",
+    "workflow_step",
 
     "requirements",
-    "timeline",
 
     "official_url",
-    "official_page_text",
+    "official_form_url",
+    "official_state_url",
 
-    "barrier_check",
-    "submission_capability",
+    "applicant_name",
+    "phone",
+    "email",
+    "address",
+    "additional_information",
 
     "application_id",
     "submission_result",
-
-    "pending_application_payload",
-    "ready_to_submit",
 
     "last_ai_response",
 
@@ -437,9 +743,7 @@ def get_conversation_state():
 
     for key in CONVERSATION_STATE_KEYS:
 
-        value = st.session_state.get(
-            key
-        )
+        value = st.session_state.get(key)
 
         try:
 
@@ -457,37 +761,26 @@ def get_conversation_state():
     return state
 
 
-def restore_conversation_state(
-    state,
-):
+def restore_conversation_state(state):
 
-    if not isinstance(
-        state,
-        dict,
-    ):
+    if not isinstance(state, dict):
         return
 
     for key in CONVERSATION_STATE_KEYS:
 
         if key in state:
-
             st.session_state[key] = state[key]
 
 
 def reset_conversation_state():
 
     for key, value in DEFAULT_STATE.items():
-
         st.session_state[key] = value
 
 
-def create_conversation(
-    title="New Conversation",
-):
+def create_conversation(title="New Conversation"):
 
-    conversation_id = str(
-        uuid.uuid4()
-    )
+    conversation_id = str(uuid.uuid4())
 
     now = datetime.now().isoformat()
 
@@ -498,11 +791,13 @@ def create_conversation(
     cursor.execute(
         """
         INSERT INTO conversations (
+
             conversation_id,
             title,
             state_json,
             created_at,
             updated_at
+
         )
 
         VALUES (?, ?, ?, ?, ?)
@@ -510,10 +805,7 @@ def create_conversation(
         (
             conversation_id,
             title,
-            json.dumps(
-                {},
-                ensure_ascii=False,
-            ),
+            json.dumps({}),
             now,
             now,
         ),
@@ -536,8 +828,6 @@ def save_conversation_state():
 
     state = get_conversation_state()
 
-    now = datetime.now().isoformat()
-
     connection = get_db()
 
     cursor = connection.cursor()
@@ -557,7 +847,7 @@ def save_conversation_state():
                 state,
                 ensure_ascii=False,
             ),
-            now,
+            datetime.now().isoformat(),
             conversation_id,
         ),
     )
@@ -566,9 +856,7 @@ def save_conversation_state():
     connection.close()
 
 
-def update_conversation_title(
-    title,
-):
+def update_conversation_title(title):
 
     conversation_id = st.session_state.get(
         "conversation_id"
@@ -577,13 +865,16 @@ def update_conversation_title(
     if not conversation_id:
         return
 
-    title = str(title).strip()
+    title = re.sub(
+        r"\s+",
+        " ",
+        str(title).strip(),
+    )
 
     if not title:
-        return
+        title = "New Conversation"
 
     if len(title) > 60:
-
         title = title[:57] + "..."
 
     connection = get_db()
@@ -611,10 +902,7 @@ def update_conversation_title(
     connection.close()
 
 
-def add_conversation_message(
-    role,
-    content,
-):
+def add_conversation_message(role, content):
 
     conversation_id = st.session_state.get(
         "conversation_id"
@@ -633,10 +921,12 @@ def add_conversation_message(
     cursor.execute(
         """
         INSERT INTO conversation_messages (
+
             conversation_id,
             role,
             content,
             created_at
+
         )
 
         VALUES (?, ?, ?, ?)
@@ -694,9 +984,7 @@ def get_conversations():
     return rows
 
 
-def load_conversation(
-    conversation_id,
-):
+def load_conversation(conversation_id):
 
     connection = get_db()
 
@@ -710,9 +998,7 @@ def load_conversation(
 
         WHERE conversation_id = ?
         """,
-        (
-            conversation_id,
-        ),
+        (conversation_id,),
     )
 
     row = cursor.fetchone()
@@ -725,8 +1011,7 @@ def load_conversation(
     try:
 
         state = json.loads(
-            row["state_json"]
-            or "{}"
+            row["state_json"] or "{}"
         )
 
     except Exception:
@@ -739,16 +1024,12 @@ def load_conversation(
         "conversation_id"
     ] = conversation_id
 
-    restore_conversation_state(
-        state
-    )
+    restore_conversation_state(state)
 
     return True
 
 
-def delete_conversation(
-    conversation_id,
-):
+def delete_conversation(conversation_id):
 
     if not conversation_id:
         return
@@ -757,28 +1038,22 @@ def delete_conversation(
 
     cursor = connection.cursor()
 
-    # Delete all messages belonging to this conversation
     cursor.execute(
         """
         DELETE FROM conversation_messages
 
         WHERE conversation_id = ?
         """,
-        (
-            conversation_id,
-        ),
+        (conversation_id,),
     )
 
-    # Delete the conversation itself
     cursor.execute(
         """
         DELETE FROM conversations
 
         WHERE conversation_id = ?
         """,
-        (
-            conversation_id,
-        ),
+        (conversation_id,),
     )
 
     connection.commit()
@@ -792,9 +1067,7 @@ def ensure_current_conversation():
     ):
         return
 
-    conversation_id = create_conversation(
-        "New Conversation"
-    )
+    conversation_id = create_conversation()
 
     st.session_state[
         "conversation_id"
@@ -807,22 +1080,16 @@ ensure_current_conversation()
 
 
 # ============================================================
-# CONVERSATION SIDEBAR
+# SIDEBAR
 # ============================================================
 
 with st.sidebar:
 
-    st.markdown(
-        "## 🧭 NextStep AI"
-    )
+    st.markdown("## 🧭 NextStep AI")
 
     st.caption(
-        "AI-powered public-service assistant"
+        "Action-first government service assistant"
     )
-
-    # ========================================================
-    # NEW CONVERSATION
-    # ========================================================
 
     if st.button(
         "➕ New Conversation",
@@ -830,12 +1097,9 @@ with st.sidebar:
         type="primary",
     ):
 
-        # Save current conversation before creating another
         save_conversation_state()
 
-        new_id = create_conversation(
-            "New Conversation"
-        )
+        new_id = create_conversation()
 
         reset_conversation_state()
 
@@ -849,13 +1113,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ========================================================
-    # CONVERSATION HISTORY
-    # ========================================================
-
-    st.markdown(
-        "### 🕘 Previous Conversations"
-    )
+    st.markdown("### 🕘 Conversations")
 
     conversations = get_conversations()
 
@@ -863,416 +1121,147 @@ with st.sidebar:
         "conversation_id"
     )
 
-    if not conversations:
+    for conversation in conversations:
 
-        st.caption(
-            "No conversations yet."
+        conversation_id = conversation[
+            "conversation_id"
+        ]
+
+        title = (
+            conversation["title"]
+            or "New Conversation"
         )
 
-    else:
+        display_title = title
 
-        for conversation in conversations:
-
-            conversation_id = conversation[
-                "conversation_id"
-            ]
-
-            title = (
-                conversation["title"]
-                or "New Conversation"
+        if len(display_title) > 30:
+            display_title = (
+                display_title[:27]
+                + "..."
             )
 
-            # Clean empty/untitled conversations
-            if not title.strip():
+        col1, col2 = st.columns(
+            [5, 1],
+            gap="small",
+        )
 
-                title = "New Conversation"
+        with col1:
 
-            # Short display title
-            display_title = title
-
-            if len(display_title) > 32:
-
-                display_title = (
-                    display_title[:29]
-                    + "..."
-                )
-
-            is_current = (
-                conversation_id
-                == current_id
+            prefix = (
+                "🟢"
+                if conversation_id == current_id
+                else "💬"
             )
 
-            # ------------------------------------------------
-            # EACH CONVERSATION GETS TWO BUTTONS:
-            # OPEN + DELETE
-            # ------------------------------------------------
+            if st.button(
+                f"{prefix} {display_title}",
+                key=f"open_{conversation_id}",
+                use_container_width=True,
+            ):
 
-            open_col, delete_col = st.columns(
-                [5, 1],
-                gap="small",
-            )
+                if conversation_id != current_id:
 
-            with open_col:
+                    save_conversation_state()
 
-                if is_current:
-
-                    button_label = (
-                        f"🟢 {display_title}"
-                    )
-
-                else:
-
-                    button_label = (
-                        f"💬 {display_title}"
-                    )
-
-                if st.button(
-                    button_label,
-                    key=(
-                        "open_conversation_"
-                        + conversation_id
-                    ),
-                    use_container_width=True,
-                ):
-
-                    if conversation_id != current_id:
-
-                        save_conversation_state()
-
-                        loaded = load_conversation(
-                            conversation_id
-                        )
-
-                        if loaded:
-
-                            st.rerun()
-
-            with delete_col:
-
-                if st.button(
-                    "🗑️",
-                    key=(
-                        "delete_conversation_"
-                        + conversation_id
-                    ),
-                    help=(
-                        "Delete this conversation"
-                    ),
-                    use_container_width=True,
-                ):
-
-                    deleting_current = (
-                        conversation_id
-                        == current_id
-                    )
-
-                    delete_conversation(
+                    load_conversation(
                         conversation_id
                     )
-
-                    # If current conversation was deleted,
-                    # immediately create a fresh conversation.
-                    if deleting_current:
-
-                        reset_conversation_state()
-
-                        new_id = create_conversation(
-                            "New Conversation"
-                        )
-
-                        st.session_state[
-                            "conversation_id"
-                        ] = new_id
-
-                        save_conversation_state()
 
                     st.rerun()
 
-    st.divider()
+        with col2:
 
-    # ========================================================
-    # CURRENT CONVERSATION
-    # ========================================================
+            if st.button(
+                "🗑️",
+                key=f"delete_{conversation_id}",
+                use_container_width=True,
+            ):
 
-    current_conversation_id = (
-        st.session_state.get(
-            "conversation_id"
-        )
-    )
+                deleting_current = (
+                    conversation_id
+                    == current_id
+                )
 
-    current_title = "New Conversation"
+                delete_conversation(
+                    conversation_id
+                )
 
-    if current_conversation_id:
+                if deleting_current:
 
-        connection = get_db()
+                    reset_conversation_state()
 
-        cursor = connection.cursor()
+                    new_id = create_conversation()
 
-        cursor.execute(
-            """
-            SELECT title
+                    st.session_state[
+                        "conversation_id"
+                    ] = new_id
 
-            FROM conversations
+                    save_conversation_state()
 
-            WHERE conversation_id = ?
-            """,
-            (
-                current_conversation_id,
-            ),
-        )
-
-        row = cursor.fetchone()
-
-        connection.close()
-
-        if row and row["title"]:
-
-            current_title = row["title"]
-
-    st.markdown(
-        "### 💬 Current Conversation"
-    )
-
-    st.caption(
-        current_title
-    )
-
-    if st.button(
-        "🗑️ Delete Current Conversation",
-        use_container_width=True,
-    ):
-
-        current_conversation = (
-            st.session_state.get(
-                "conversation_id"
-            )
-        )
-
-        if current_conversation:
-
-            delete_conversation(
-                current_conversation
-            )
-
-        reset_conversation_state()
-
-        new_id = create_conversation(
-            "New Conversation"
-        )
-
-        st.session_state[
-            "conversation_id"
-        ] = new_id
-
-        save_conversation_state()
-
-        st.rerun()
+                st.rerun()
 
     st.divider()
 
-    # ========================================================
-    # LANGUAGE
-    # ========================================================
-
-    current_language = (
-        st.session_state.get(
-            "language",
-            "English",
-        )
+    current_language = st.session_state.get(
+        "language",
+        "English",
     )
-
-    language_index = 0
-
-    if current_language in LANGUAGE_CODES:
-
-        language_index = list(
-            LANGUAGE_CODES.keys()
-        ).index(
-            current_language
-        )
 
     language = st.selectbox(
         "🌐 Language",
         list(LANGUAGE_CODES.keys()),
-        index=language_index,
+        index=(
+            list(LANGUAGE_CODES.keys()).index(
+                current_language
+            )
+            if current_language in LANGUAGE_CODES
+            else 0
+        ),
     )
 
-    st.session_state[
-        "language"
-    ] = language
+    st.session_state["language"] = language
 
-    # Save language change
     save_conversation_state()
 
     st.divider()
 
-    # ========================================================
-    # HOW IT WORKS
-    # ========================================================
-
-    st.markdown(
-        "### How it works"
-    )
+    st.markdown("### ⚡ Action Workflow")
 
     st.markdown(
         """
-        **1. Discover**  
+        **1. Tell NextStep AI**
+
         Describe the government service.
 
-        **2. Verify**  
-        NextStep AI checks the official process.
+        **2. Start**
 
-        **3. Safety check**  
-        CAPTCHA and other human-only barriers are detected.
+        The service workflow starts immediately.
 
-        **4. Prepare**  
-        Required information is collected only when needed.
+        **3. Prepare**
 
-        **5. Submit**  
-        Submission happens only through an authorized integration.
+        Review the requirements and prepare information.
 
-        **6. Track**  
-        Application status and processing timeline are shown.
+        **4. Continue**
+
+        Each button takes you directly to the next step.
+
+        **5. Government Portal**
+
+        The official government portal handles authentication,
+        OTP, CAPTCHA, payment and final submission.
+
+        **6. Track**
+
+        Save the government application/reference number.
         """
     )
 
     st.divider()
 
     st.caption(
-        "NextStep AI never bypasses CAPTCHA, OTP, biometric "
-        "verification, or other human-verification controls."
+        "🔐 NextStep AI does not bypass CAPTCHA, OTP, "
+        "biometric verification or other government security controls."
     )
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown(
-    '<div class="main-title">🧭 NextStep AI</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="subtitle">Discover • Prepare • Submit • Track</div>',
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# DATE / WORKING DAY HELPERS
-# ============================================================
-
-def load_holidays():
-
-    try:
-
-        holidays = json.loads(
-            HOLIDAYS_RAW
-        )
-
-        if not isinstance(
-            holidays,
-            list,
-        ):
-            return set()
-
-        return {
-            str(item).strip()
-            for item in holidays
-            if str(item).strip()
-        }
-
-    except Exception:
-
-        return set()
-
-
-HOLIDAYS = load_holidays()
-
-
-def is_working_day(day):
-
-    if day.weekday() >= 5:
-        return False
-
-    if day.isoformat() in HOLIDAYS:
-        return False
-
-    return True
-
-
-def add_working_days(
-    start_date,
-    number_of_days,
-):
-
-    current = start_date
-    added = 0
-
-    while added < number_of_days:
-
-        current += timedelta(days=1)
-
-        if is_working_day(current):
-
-            added += 1
-
-    return current
-
-
-def add_processing_days(
-    submission_date,
-    processing_days,
-    processing_type,
-):
-
-    if not processing_days:
-        return None
-
-    if processing_type == "working_days":
-
-        return add_working_days(
-            submission_date,
-            processing_days,
-        )
-
-    return submission_date + timedelta(
-        days=processing_days
-    )
-
-
-def calculate_remaining_days(
-    expected_date,
-    processing_type,
-):
-
-    if not expected_date:
-        return None
-
-    today = date.today()
-
-    if expected_date <= today:
-        return 0
-
-    if processing_type == "working_days":
-
-        count = 0
-        current = today
-
-        while current < expected_date:
-
-            current += timedelta(days=1)
-
-            if is_working_day(current):
-
-                count += 1
-
-        return count
-
-    return (
-        expected_date - today
-    ).days
 
 
 # ============================================================
@@ -1331,31 +1320,23 @@ def openrouter_chat(
         if not choices:
             return None
 
-        message = choices[0].get(
+        content = choices[0].get(
             "message",
             {},
-        )
-
-        content = message.get(
+        ).get(
             "content",
             "",
         )
 
-        if isinstance(
-            content,
-            list,
-        ):
+        if isinstance(content, list):
 
-            text_parts = []
+            parts = []
 
             for item in content:
 
-                if isinstance(
-                    item,
-                    dict,
-                ):
+                if isinstance(item, dict):
 
-                    text_parts.append(
+                    parts.append(
                         str(
                             item.get(
                                 "text",
@@ -1364,16 +1345,11 @@ def openrouter_chat(
                         )
                     )
 
-            content = "".join(
-                text_parts
-            )
+            content = "".join(parts)
 
-        return str(
-            content
-        ).strip()
+        return str(content).strip()
 
     except Exception:
-
         return None
 
 
@@ -1386,14 +1362,12 @@ def extract_json(text):
     if not text:
         return None
 
-    text = text.strip()
-
     try:
-
-        return json.loads(text)
+        return json.loads(
+            text.strip()
+        )
 
     except Exception:
-
         pass
 
     match = re.search(
@@ -1405,13 +1379,11 @@ def extract_json(text):
     if match:
 
         try:
-
             return json.loads(
                 match.group(0)
             )
 
         except Exception:
-
             pass
 
     return None
@@ -1428,209 +1400,151 @@ def is_official_url(url):
 
     try:
 
-        parsed = urlparse(url)
+        parsed = urlparse(
+            str(url).strip()
+        )
 
         if parsed.scheme not in {
             "http",
             "https",
         }:
-
             return False
 
         hostname = (
             parsed.hostname or ""
         ).lower()
 
-        if not hostname:
-            return False
-
-        allowed = (
+        return (
             hostname.endswith(".gov.in")
             or hostname.endswith(".nic.in")
             or hostname == "gov.in"
         )
 
-        return allowed
-
     except Exception:
-
         return False
 
 
-def normalize_url(url):
-
-    if not url:
-        return ""
-
-    url = str(
-        url
-    ).strip()
-
-    if not url.startswith(
-        (
-            "http://",
-            "https://",
-        )
-    ):
-
-        url = (
-            "https://"
-            + url
-        )
-
-    return url
-
-
 # ============================================================
-# OFFICIAL PAGE READER
+# SERVICE MATCHING
 # ============================================================
 
-def read_official_page(url):
+def normalize_text(text):
 
-    url = normalize_url(
-        url
+    text = str(text or "").lower()
+
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        text,
     )
 
-    if not is_official_url(
-        url
-    ):
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
 
-        return {
-            "success": False,
-            "text": "",
-            "error": (
-                "URL is not a verified "
-                "government-domain URL."
-            ),
-        }
+    return text.strip()
 
-    try:
 
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 "
-                "(compatible; NextStepAI/1.0)"
-            )
-        }
+def find_registry_service(user_request):
 
-        response = requests.get(
-            url,
-            headers=headers,
-            timeout=REQUEST_TIMEOUT,
-            allow_redirects=True,
-        )
+    normalized = normalize_text(
+        user_request
+    )
 
-        response.raise_for_status()
+    best_key = None
+    best_score = 0
 
-        final_url = response.url
+    for key, service in SERVICE_REGISTRY.items():
 
-        if not is_official_url(
-            final_url
+        score = 0
+
+        for keyword in service.get(
+            "keywords",
+            [],
         ):
 
-            return {
-                "success": False,
-                "text": "",
-                "error": (
-                    "The page redirected outside "
-                    "a verified government domain."
-                ),
-            }
+            keyword_normalized = (
+                normalize_text(keyword)
+            )
 
-        html = response.text
+            if keyword_normalized in normalized:
 
-        html = re.sub(
-            r"<script.*?</script>",
-            " ",
-            html,
-            flags=re.I | re.S,
+                score += len(
+                    keyword_normalized.split()
+                )
+
+        if score > best_score:
+
+            best_score = score
+            best_key = key
+
+    if best_key:
+
+        service = dict(
+            SERVICE_REGISTRY[best_key]
         )
 
-        html = re.sub(
-            r"<style.*?</style>",
-            " ",
-            html,
-            flags=re.I | re.S,
+        service["registry_key"] = best_key
+
+        service["confidence"] = min(
+            1.0,
+            0.65 + (
+                best_score * 0.08
+            ),
         )
 
-        html = re.sub(
-            r"<noscript.*?</noscript>",
-            " ",
-            html,
-            flags=re.I | re.S,
-        )
+        return service
 
-        text = re.sub(
-            r"<[^>]+>",
-            " ",
-            html,
-        )
-
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
-        ).strip()
-
-        return {
-            "success": True,
-            "text": text[:30000],
-            "url": final_url,
-            "error": "",
-        }
-
-    except Exception as error:
-
-        return {
-            "success": False,
-            "text": "",
-            "error": str(error),
-        }
+    return None
 
 
 # ============================================================
 # AI SERVICE IDENTIFICATION
 # ============================================================
 
-def identify_service(
-    user_request
-):
+def identify_service(user_request):
+
+    # First use the verified service registry.
+    registry_match = (
+        find_registry_service(
+            user_request
+        )
+    )
+
+    if registry_match:
+        return registry_match
+
+    if not OPENROUTER_API_KEY:
+        return None
 
     system_prompt = """
-You are the service-identification engine for NextStep AI.
+You are NextStep AI's government-service identification engine.
 
-The user may describe a government/public service in natural language.
-
-Identify the most likely service.
+Identify the most likely government/public service from the user's
+natural-language request.
 
 Return ONLY valid JSON.
 
-Required schema:
+Schema:
 
 {
-  "service_name": "",
-  "service_category": "",
-  "jurisdiction": "",
-  "department": "",
-  "intent": "",
-  "confidence": 0,
-  "online_application_available": false,
-  "official_portal_url": "",
-  "explanation": ""
+    "service_name": "",
+    "service_category": "",
+    "jurisdiction": "",
+    "department": "",
+    "intent": "",
+    "confidence": 0
 }
 
 Rules:
 
-1. Do not invent a government procedure.
-2. Do not invent an exact official URL.
-3. If you do not know an official URL with reasonable confidence,
-   return an empty official_portal_url.
+1. Do not invent an official URL.
+2. Do not invent a government procedure.
+3. If jurisdiction is unknown, use "Unknown".
 4. confidence must be between 0 and 1.
-5. online_application_available should only be true when an
-   online application process is reasonably known.
-6. Identify the jurisdiction if the user explicitly provides it.
-7. If jurisdiction is unknown, say "Unknown".
-8. Be conservative.
+5. Keep the answer concise.
 """
 
     result = openrouter_chat(
@@ -1639,12 +1553,12 @@ Rules:
         temperature=0.0,
     )
 
-    data = extract_json(
-        result
-    )
+    data = extract_json(result)
 
     if not data:
         return None
+
+    data["registry_key"] = "generic"
 
     try:
 
@@ -1659,13 +1573,66 @@ Rules:
 
         data["confidence"] = 0
 
-    data[
-        "official_portal_url"
-    ] = normalize_url(
-        data.get(
-            "official_portal_url",
-            "",
-        )
+    data["portal_url"] = (
+        "https://www.telangana.gov.in/services/state-services/"
+        if str(
+            data.get(
+                "jurisdiction",
+                "",
+            )
+        ).lower()
+        == "telangana"
+        else ""
+    )
+
+    data["form_url"] = ""
+
+    data["state_service_url"] = (
+        "https://www.telangana.gov.in/services/state-services/"
+        if str(
+            data.get(
+                "jurisdiction",
+                "",
+            )
+        ).lower()
+        == "telangana"
+        else ""
+    )
+
+    data["steps"] = [
+        "Open the official government service portal.",
+        "Locate the requested service.",
+        "Enter the information requested by the official portal.",
+        "Upload the documents requested by the official portal.",
+        "Review the application.",
+        "Complete any required verification.",
+        "Submit through the official government portal.",
+        "Save the application/reference number.",
+    ]
+
+    data["requirements"] = [
+        {
+            "name": "Applicant information",
+            "description": (
+                "Provide the information requested by "
+                "the official service."
+            ),
+            "mandatory": True,
+        },
+        {
+            "name": "Supporting documents",
+            "description": (
+                "Follow the current official portal's "
+                "document checklist."
+            ),
+            "mandatory": True,
+        },
+    ]
+
+    data["note"] = (
+        "For services not yet configured with a direct "
+        "workflow, NextStep AI sends the user to the "
+        "official government service directory."
     )
 
     return data
@@ -1675,472 +1642,36 @@ Rules:
 # REQUIREMENTS
 # ============================================================
 
-def generate_requirements(
-    service
-):
+def get_requirements(service):
 
-    system_prompt = """
-You are the requirements engine for NextStep AI.
-
-Generate a conservative list of information/documents that
-a citizen may need for the identified government service.
-
-Return ONLY valid JSON.
-
-Schema:
-
-{
-  "requirements": [
-    {
-      "name": "",
-      "description": "",
-      "mandatory": true
-    }
-  ],
-  "information_needed": [],
-  "warnings": [],
-  "verification_note": ""
-}
-
-Rules:
-
-- Never invent a government requirement as certain.
-- Clearly distinguish likely requirements from verified requirements.
-- Do not request unnecessary sensitive information.
-- Do not ask for passwords, OTPs, PINs, CVVs or authentication secrets.
-- Mention that the official portal should be checked.
-"""
-
-    prompt = json.dumps(
-        service,
-        ensure_ascii=False,
-    )
-
-    result = openrouter_chat(
-        system_prompt,
-        prompt,
-        temperature=0.1,
-    )
-
-    data = extract_json(
-        result
-    )
-
-    if not data:
-
-        return {
-            "requirements": [],
-            "information_needed": [],
-            "warnings": [
-                "Requirements could not be generated."
-            ],
-            "verification_note": (
-                "Please verify requirements on the "
-                "official government portal."
-            ),
-        }
-
-    return data
-
-
-# ============================================================
-# BARRIER DETECTION
-# ============================================================
-
-def detect_ai_barriers(
-    service,
-    official_page_text,
-):
-
-    if not official_page_text:
-
-        return {
-            "page_checked": False,
-            "ai_submission_supported": False,
-            "barriers": [],
-            "reason": (
-                "The official application page could "
-                "not be inspected. Automatic submission "
-                "is disabled until the process can be verified."
-            ),
-        }
-
-    system_prompt = """
-You are the automation-safety checker for NextStep AI.
-
-Analyze the official government application-page text.
-
-Your task is to determine whether an AI agent can safely and
-legitimately automate the application.
-
-Return ONLY valid JSON:
-
-{
-  "page_checked": true,
-  "online_application_available": false,
-  "ai_submission_supported": false,
-  "barriers": [
-    {
-      "type": "",
-      "present": false,
-      "blocking": false,
-      "evidence": ""
-    }
-  ],
-  "human_steps_required": [],
-  "reason": ""
-}
-
-Recognize barriers including:
-
-- CAPTCHA
-- reCAPTCHA
-- hCaptcha
-- Cloudflare Turnstile
-- human verification
-- OTP that must be entered by the applicant
-- biometric authentication
-- Aadhaar biometric authentication
-- mandatory physical verification
-- mandatory physical presence
-- mandatory in-person appointment
-- payment that requires human interaction
-- any other explicit human-only verification
-
-Important:
-
-1. Never recommend bypassing CAPTCHA.
-2. Never recommend bypassing OTP or identity verification.
-3. Never claim an application can be automated if a blocking
-   human verification step is explicitly present.
-4. If the page does not contain enough evidence, be conservative.
-5. Do not treat ordinary login as a CAPTCHA.
-6. Do not treat a normal document upload as a barrier.
-7. Do not invent barriers that are not present.
-8. If CAPTCHA is detected, ai_submission_supported MUST be false.
-9. If mandatory biometric verification is detected,
-   ai_submission_supported MUST be false.
-10. If mandatory physical presence is detected,
-    ai_submission_supported MUST be false.
-"""
-
-    prompt = f"""
-SERVICE:
-
-{json.dumps(
-    service,
-    indent=2,
-    ensure_ascii=False,
-)}
-
-OFFICIAL PAGE TEXT:
-
-{official_page_text[:25000]}
-"""
-
-    result = openrouter_chat(
-        system_prompt,
-        prompt,
-        temperature=0.0,
-    )
-
-    data = extract_json(
-        result
-    )
-
-    if not data:
-
-        return {
-            "page_checked": True,
-            "online_application_available": False,
-            "ai_submission_supported": False,
-            "barriers": [],
-            "human_steps_required": [],
-            "reason": (
-                "The application process could not be "
-                "reliably analyzed. Automatic submission "
-                "has therefore been disabled."
-            ),
-        }
-
-    barriers = data.get(
-        "barriers",
+    requirements = service.get(
+        "requirements",
         [],
     )
 
-    for barrier in barriers:
+    if requirements:
+        return requirements
 
-        if not isinstance(
-            barrier,
-            dict,
-        ):
-            continue
-
-        barrier_type = str(
-            barrier.get(
-                "type",
-                "",
-            )
-        ).lower().replace(
-            "-",
-            "_",
-        ).replace(
-            " ",
-            "_",
-        )
-
-        if (
-            barrier_type
-            in BLOCKING_BARRIERS
-            and barrier.get(
-                "present"
-            )
-            is True
-        ):
-
-            data[
-                "ai_submission_supported"
-            ] = False
-
-    return data
+    return [
+        {
+            "name": "Applicant information",
+            "description": (
+                "Information requested by the official portal."
+            ),
+            "mandatory": True,
+        },
+        {
+            "name": "Supporting documents",
+            "description": (
+                "Documents requested by the official portal."
+            ),
+            "mandatory": True,
+        },
+    ]
 
 
 # ============================================================
-# AUTHORIZED INTEGRATION CHECK
-# ============================================================
-
-def find_authorized_integration(
-    service_name
-):
-
-    service_name_lower = (
-        str(
-            service_name or ""
-        )
-        .strip()
-        .lower()
-    )
-
-    if not service_name_lower:
-        return None
-
-    for integration in (
-        GOVERNMENT_INTEGRATIONS
-    ):
-
-        if not isinstance(
-            integration,
-            dict,
-        ):
-            continue
-
-        registered_name = str(
-            integration.get(
-                "service_name",
-                "",
-            )
-        ).strip().lower()
-
-        if (
-            registered_name
-            == service_name_lower
-        ):
-
-            return integration
-
-    return None
-
-
-def check_submission_capability(
-    service,
-    barrier_check,
-):
-
-    service_name = service.get(
-        "service_name",
-        "",
-    )
-
-    integration = (
-        find_authorized_integration(
-            service_name
-        )
-    )
-
-    if not barrier_check:
-
-        return {
-            "supported": False,
-            "reason": (
-                "The application process has not "
-                "been verified."
-            ),
-            "integration": None,
-        }
-
-    if not barrier_check.get(
-        "page_checked",
-        False,
-    ):
-
-        return {
-            "supported": False,
-            "reason": (
-                "The official application process "
-                "could not be verified."
-            ),
-            "integration": None,
-        }
-
-    if not barrier_check.get(
-        "ai_submission_supported",
-        False,
-    ):
-
-        return {
-            "supported": False,
-            "reason": barrier_check.get(
-                "reason",
-                "A human verification step is required.",
-            ),
-            "integration": integration,
-        }
-
-    if not integration:
-
-        return {
-            "supported": False,
-            "reason": (
-                "The service may have an online application, "
-                "but NextStep AI does not have a configured "
-                "authorized government integration for "
-                "automatic submission."
-            ),
-            "integration": None,
-        }
-
-    endpoint = str(
-        integration.get(
-            "endpoint",
-            "",
-        )
-    ).strip()
-
-    if not endpoint:
-
-        return {
-            "supported": False,
-            "reason": (
-                "No authorized submission endpoint "
-                "is configured for this service."
-            ),
-            "integration": None,
-        }
-
-    return {
-        "supported": True,
-        "reason": (
-            "The application process passed the barrier "
-            "check and an authorized integration is configured."
-        ),
-        "integration": integration,
-    }
-
-
-# ============================================================
-# OFFICIAL TIMELINE VERIFICATION
-# ============================================================
-
-def verify_timeline(
-    service,
-    official_page_text,
-):
-
-    if not official_page_text:
-
-        return {
-            "verified": False,
-            "processing_days": None,
-            "processing_type": None,
-            "evidence": "",
-            "confidence": 0,
-        }
-
-    system_prompt = """
-You are the official timeline extraction engine for NextStep AI.
-
-Extract a processing timeline ONLY when the official page text
-explicitly states it.
-
-Return ONLY JSON:
-
-{
-  "verified": false,
-  "processing_days": null,
-  "processing_type": null,
-  "evidence": "",
-  "confidence": 0
-}
-
-processing_type must be exactly:
-
-"calendar_days"
-
-or
-
-"working_days"
-
-or null.
-
-Rules:
-
-- Never guess.
-- Never infer a processing time from general statements.
-- If the page says "within 7 working days", return 7 and working_days.
-- If it says "within 30 days", return 30 and calendar_days only if
-  the context clearly means calendar days.
-- If unclear, return verified false.
-- evidence must briefly quote the relevant wording.
-"""
-
-    prompt = f"""
-SERVICE:
-
-{json.dumps(
-    service,
-    ensure_ascii=False,
-)}
-
-OFFICIAL PAGE:
-
-{official_page_text[:25000]}
-"""
-
-    result = openrouter_chat(
-        system_prompt,
-        prompt,
-        temperature=0.0,
-    )
-
-    data = extract_json(
-        result
-    )
-
-    if not data:
-
-        return {
-            "verified": False,
-            "processing_days": None,
-            "processing_type": None,
-            "evidence": "",
-            "confidence": 0,
-        }
-
-    return data
-
-
-# ============================================================
-# SARVAM SPEECH TO TEXT
+# SPEECH TO TEXT
 # ============================================================
 
 def speech_to_text(
@@ -2157,9 +1688,7 @@ def speech_to_text(
     )
 
     headers = {
-        "api-subscription-key": (
-            SARVAM_API_KEY
-        ),
+        "api-subscription-key": SARVAM_API_KEY,
     }
 
     files = {
@@ -2197,12 +1726,11 @@ def speech_to_text(
         ).strip()
 
     except Exception:
-
         return None
 
 
 # ============================================================
-# SARVAM TEXT TO SPEECH
+# TEXT TO SPEECH
 # ============================================================
 
 def text_to_speech(
@@ -2222,12 +1750,8 @@ def text_to_speech(
     )
 
     headers = {
-        "api-subscription-key": (
-            SARVAM_API_KEY
-        ),
-        "Content-Type": (
-            "application/json"
-        ),
+        "api-subscription-key": SARVAM_API_KEY,
+        "Content-Type": "application/json",
     }
 
     payload = {
@@ -2251,19 +1775,22 @@ def text_to_speech(
 
         data = response.json()
 
-        audio_b64 = (
-            data.get(
-                "audios",
-                [None],
-            )[0]
-            if isinstance(
-                data.get("audios"),
-                list,
-            )
-            else data.get(
+        audios = data.get(
+            "audios"
+        )
+
+        if isinstance(
+            audios,
+            list
+        ) and audios:
+
+            audio_b64 = audios[0]
+
+        else:
+
+            audio_b64 = data.get(
                 "audio"
             )
-        )
 
         if not audio_b64:
             return None
@@ -2273,171 +1800,28 @@ def text_to_speech(
         )
 
     except Exception:
-
         return None
 
 
 # ============================================================
-# SUBMISSION
+# LOCAL APPLICATION STORAGE
 # ============================================================
 
-def submit_application(
-    payload,
-    integration,
+def save_local_application(
+    service,
+    applicant,
 ):
 
-    if not integration:
-
-        return {
-            "success": False,
-            "real_submission": False,
-            "application_id": None,
-            "message": (
-                "No authorized government integration "
-                "is configured for this service."
-            ),
-        }
-
-    endpoint = str(
-        integration.get(
-            "endpoint",
-            "",
+    application_id = (
+        "NS-"
+        + datetime.now().strftime(
+            "%Y%m%d"
         )
-    ).strip()
-
-    if not endpoint:
-
-        return {
-            "success": False,
-            "real_submission": False,
-            "application_id": None,
-            "message": (
-                "The authorized integration does not "
-                "have a submission endpoint."
-            ),
-        }
-
-    method = str(
-        integration.get(
-            "method",
-            "POST",
-        )
-    ).upper()
-
-    headers = {
-        "Content-Type": (
-            "application/json"
-        )
-    }
-
-    extra_headers = (
-        integration.get(
-            "headers",
-            {},
-        )
+        + "-"
+        + uuid.uuid4().hex[:8].upper()
     )
 
-    if isinstance(
-        extra_headers,
-        dict,
-    ):
-
-        headers.update(
-            extra_headers
-        )
-
-    try:
-
-        if method == "POST":
-
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=REQUEST_TIMEOUT,
-            )
-
-        elif method == "PUT":
-
-            response = requests.put(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=REQUEST_TIMEOUT,
-            )
-
-        else:
-
-            return {
-                "success": False,
-                "real_submission": False,
-                "application_id": None,
-                "message": (
-                    "Unsupported integration method."
-                ),
-            }
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        application_id = (
-            data.get("application_id")
-            or data.get("applicationId")
-            or data.get("reference_number")
-            or data.get("referenceNumber")
-            or data.get("application_number")
-            or data.get("applicationNumber")
-            or data.get("id")
-        )
-
-        if not application_id:
-
-            return {
-                "success": False,
-                "real_submission": False,
-                "application_id": None,
-                "message": (
-                    "The government integration responded, "
-                    "but did not provide a recognizable "
-                    "application/reference number."
-                ),
-                "raw_response": data,
-            }
-
-        return {
-            "success": True,
-            "real_submission": True,
-            "application_id": str(
-                application_id
-            ),
-            "message": (
-                "Application submitted through the "
-                "configured authorized integration."
-            ),
-            "raw_response": data,
-        }
-
-    except Exception as error:
-
-        return {
-            "success": False,
-            "real_submission": False,
-            "application_id": None,
-            "message": (
-                "Government submission failed: "
-                + str(error)
-            ),
-        }
-
-
-# ============================================================
-# LOCAL APPLICATION RECORD
-# ============================================================
-
-def save_application(
-    record
-):
+    now = datetime.now().isoformat()
 
     connection = get_db()
 
@@ -2448,202 +1832,100 @@ def save_application(
         INSERT OR REPLACE INTO applications (
 
             application_id,
-
             service_name,
             category,
             jurisdiction,
             department,
-
             applicant_name,
             phone,
             email,
             address,
             additional_information,
-
             official_url,
-
             submission_date,
-
             status,
-
-            processing_days,
-            processing_type,
-            expected_completion_date,
-
-            timeline_source,
-            timeline_verified,
-
-            ai_submission_supported,
-            barrier_detected,
-            barrier_details,
-
             created_at,
             updated_at
+
         )
 
-        VALUES (
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?,
-            ?,
-            ?,
-            ?, ?, ?,
-            ?, ?,
-            ?, ?,
-            ?,
-            ?, ?
-        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            record.get(
-                "application_id"
+            application_id,
+
+            service.get(
+                "service_name",
+                "",
             ),
 
-            record.get(
-                "service_name"
+            service.get(
+                "service_category",
+                "",
             ),
 
-            record.get(
-                "category"
+            service.get(
+                "jurisdiction",
+                "",
             ),
 
-            record.get(
-                "jurisdiction"
+            service.get(
+                "department",
+                "",
             ),
 
-            record.get(
-                "department"
+            applicant.get(
+                "name",
+                "",
             ),
 
-            record.get(
-                "applicant_name"
+            applicant.get(
+                "phone",
+                "",
             ),
 
-            record.get(
-                "phone"
+            applicant.get(
+                "email",
+                "",
             ),
 
-            record.get(
-                "email"
+            applicant.get(
+                "address",
+                "",
             ),
 
-            record.get(
-                "address"
+            applicant.get(
+                "additional_information",
+                "",
             ),
 
-            record.get(
-                "additional_information"
+            service.get(
+                "portal_url",
+                "",
             ),
 
-            record.get(
-                "official_url"
-            ),
+            date.today().isoformat(),
 
-            record.get(
-                "submission_date"
-            ),
+            "Prepared - Not Submitted",
 
-            record.get(
-                "status"
-            ),
-
-            record.get(
-                "processing_days"
-            ),
-
-            record.get(
-                "processing_type"
-            ),
-
-            record.get(
-                "expected_completion_date"
-            ),
-
-            record.get(
-                "timeline_source"
-            ),
-
-            1 if record.get(
-                "timeline_verified"
-            ) else 0,
-
-            1 if record.get(
-                "ai_submission_supported"
-            ) else 0,
-
-            1 if record.get(
-                "barrier_detected"
-            ) else 0,
-
-            json.dumps(
-                record.get(
-                    "barrier_details",
-                    {},
-                ),
-                ensure_ascii=False,
-            ),
-
-            record.get(
-                "created_at"
-            ),
-
-            record.get(
-                "updated_at"
-            ),
+            now,
+            now,
         ),
     )
 
     connection.commit()
     connection.close()
 
+    return application_id
+
 
 # ============================================================
 # STATUS
 # ============================================================
 
-def fetch_status(
+def fetch_local_status(
     application_id
 ):
-
-    if GOVERNMENT_STATUS_URL:
-
-        try:
-
-            response = requests.post(
-                GOVERNMENT_STATUS_URL,
-                json={
-                    "application_id": (
-                        application_id
-                    )
-                },
-                timeout=REQUEST_TIMEOUT,
-            )
-
-            response.raise_for_status()
-
-            data = response.json()
-
-            return {
-                "success": True,
-                "status": data.get(
-                    "status",
-                    "Unknown",
-                ),
-                "message": data.get(
-                    "message",
-                    "",
-                ),
-                "raw": data,
-            }
-
-        except Exception as error:
-
-            return {
-                "success": False,
-                "status": "Unknown",
-                "message": str(error),
-                "raw": {},
-            }
 
     connection = get_db()
 
@@ -2657,9 +1939,7 @@ def fetch_status(
 
         WHERE application_id = ?
         """,
-        (
-            application_id,
-        ),
+        (application_id,),
     )
 
     row = cursor.fetchone()
@@ -2668,57 +1948,147 @@ def fetch_status(
 
     if not row:
 
-        return {
-            "success": False,
-            "status": "Not found",
-            "message": (
-                "No application was found."
-            ),
-            "raw": {},
-        }
+        return None
 
-    return {
-        "success": True,
-        "status": row["status"],
-        "message": (
-            "This is the status stored by NextStep AI. "
-            "A live government status requires a configured "
-            "government status API."
-        ),
-        "raw": dict(row),
-    }
+    return dict(row)
+
+
+# ============================================================
+# RESET WORKFLOW
+# ============================================================
+
+def reset_workflow():
+
+    st.session_state[
+        "service_identified"
+    ] = False
+
+    st.session_state[
+        "identified_service"
+    ] = None
+
+    st.session_state[
+        "workflow_active"
+    ] = False
+
+    st.session_state[
+        "workflow_step"
+    ] = 0
+
+    st.session_state[
+        "requirements"
+    ] = None
+
+    st.session_state[
+        "official_url"
+    ] = ""
+
+    st.session_state[
+        "official_form_url"
+    ] = ""
+
+    st.session_state[
+        "official_state_url"
+    ] = ""
+
+    st.session_state[
+        "applicant_name"
+    ] = ""
+
+    st.session_state[
+        "phone"
+    ] = ""
+
+    st.session_state[
+        "email"
+    ] = ""
+
+    st.session_state[
+        "address"
+    ] = ""
+
+    st.session_state[
+        "additional_information"
+    ] = ""
+
+    st.session_state[
+        "application_id"
+    ] = None
+
+    st.session_state[
+        "submission_result"
+    ] = None
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    '<div class="main-title">🧭 NextStep AI</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="subtitle">'
+    'Discover • Prepare • Act • Submit'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# HERO
+# ============================================================
+
+if not st.session_state.get(
+    "workflow_active"
+):
+
+    st.markdown(
+        """
+        <div class="hero-card">
+
+        <h2>Government services, one step at a time.</h2>
+
+        <p>
+        Tell NextStep AI what you need.
+        It identifies the service and takes you directly
+        into the action workflow.
+        </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
 # MAIN TABS
 # ============================================================
 
-assistant_tab, application_tab, status_tab = st.tabs(
+assistant_tab, workflow_tab, status_tab = st.tabs(
     [
         "🤖 Assistant",
-        "📝 Application Mode",
-        "📊 Application Status",
+        "🚀 Action Workflow",
+        "📊 Status",
     ]
 )
 
 
 # ============================================================
-# ASSISTANT TAB
+# ASSISTANT
 # ============================================================
 
 with assistant_tab:
 
     st.markdown(
-        "### Tell me what government service you need"
+        "### What government service do you need?"
     )
 
     st.caption(
-        "You can type your request or use your microphone."
+        "Type your request or use your microphone."
     )
-
-    # ========================================================
-    # VOICE INPUT
-    # ========================================================
 
     voice_audio = st.audio_input(
         "🎙️ Speak your request"
@@ -2731,7 +2101,7 @@ with assistant_tab:
         )
 
         with st.spinner(
-            "🎧 Understanding your voice..."
+            "🎧 Understanding..."
         ):
 
             transcript = speech_to_text(
@@ -2756,13 +2126,9 @@ with assistant_tab:
         else:
 
             st.warning(
-                "I couldn't understand the voice recording. "
-                "Please try again or type your request."
+                "Voice recognition was unavailable. "
+                "Please type your request."
             )
-
-    # ========================================================
-    # TEXT INPUT
-    # ========================================================
 
     user_request = st.text_area(
         "Describe the service",
@@ -2772,7 +2138,7 @@ with assistant_tab:
         ),
         height=120,
         placeholder=(
-            "Example: I want to apply for a birth certificate."
+            "Example: I want to apply for an income certificate."
         ),
     )
 
@@ -2780,44 +2146,42 @@ with assistant_tab:
         "typed_service_request"
     ] = user_request
 
-    identify_clicked = st.button(
-        "🔎 Identify Service",
+    if st.button(
+        "🚀 Start Service",
         type="primary",
         use_container_width=True,
-    )
-
-    if identify_clicked:
+    ):
 
         if not user_request.strip():
 
             st.warning(
-                "Please describe the government service first."
-            )
-
-        elif not OPENROUTER_API_KEY:
-
-            st.error(
-                "OPENROUTER_API_KEY is missing from Streamlit secrets."
+                "Please describe the service first."
             )
 
         else:
 
             with st.spinner(
-                "🧠 Identifying the service..."
+                "🧠 Identifying service..."
             ):
 
-                result = identify_service(
+                service = identify_service(
                     user_request
                 )
 
-            if not result:
+            if not service:
 
                 st.error(
-                    "I couldn't identify the service reliably. "
-                    "Please describe it in a little more detail."
+                    "I couldn't identify this service. "
+                    "Try using the official service name."
                 )
 
             else:
+
+                reset_workflow()
+
+                st.session_state[
+                    "typed_service_request"
+                ] = user_request
 
                 st.session_state[
                     "service_identified"
@@ -2825,162 +2189,227 @@ with assistant_tab:
 
                 st.session_state[
                     "identified_service"
-                ] = result
+                ] = service
 
                 st.session_state[
-                    "application_decision"
-                ] = None
+                    "workflow_active"
+                ] = True
 
                 st.session_state[
-                    "application_mode"
-                ] = False
+                    "workflow_step"
+                ] = 0
 
                 st.session_state[
                     "requirements"
-                ] = None
-
-                st.session_state[
-                    "timeline"
-                ] = None
+                ] = get_requirements(
+                    service
+                )
 
                 st.session_state[
                     "official_url"
-                ] = result.get(
-                    "official_portal_url",
+                ] = service.get(
+                    "portal_url",
                     "",
                 )
 
                 st.session_state[
-                    "official_page_text"
-                ] = ""
+                    "official_form_url"
+                ] = service.get(
+                    "form_url",
+                    "",
+                )
 
                 st.session_state[
-                    "barrier_check"
-                ] = None
-
-                st.session_state[
-                    "submission_capability"
-                ] = None
-
-                st.session_state[
-                    "application_id"
-                ] = None
-
-                st.session_state[
-                    "submission_result"
-                ] = None
-
-                st.session_state[
-                    "pending_application_payload"
-                ] = None
-
-                st.session_state[
-                    "ready_to_submit"
-                ] = False
-
-                # ------------------------------------------------
-                # SAVE USER REQUEST
-                # ------------------------------------------------
+                    "official_state_url"
+                ] = service.get(
+                    "state_service_url",
+                    "",
+                )
 
                 clean_request = (
                     user_request.strip()
                 )
 
-                if clean_request:
+                if (
+                    st.session_state.get(
+                        "_request_logged"
+                    )
+                    != clean_request
+                ):
 
-                    previous_request = (
-                        st.session_state.get(
-                            "_request_logged",
-                            "",
-                        )
+                    add_conversation_message(
+                        "user",
+                        clean_request,
                     )
 
-                    if (
-                        previous_request
-                        != clean_request
-                    ):
+                    update_conversation_title(
+                        clean_request
+                    )
 
-                        add_conversation_message(
-                            "user",
-                            clean_request,
-                        )
+                    st.session_state[
+                        "_request_logged"
+                    ] = clean_request
 
-                        # ------------------------------------------------
-                        # AUTOMATIC CONVERSATION NAME
-                        # ------------------------------------------------
-                        #
-                        # The first request becomes the conversation
-                        # title. This means every conversation gets
-                        # its own meaningful name.
-                        #
-
-                        title = clean_request
-
-                        # Remove excessive whitespace
-                        title = re.sub(
-                            r"\s+",
-                            " ",
-                            title,
-                        ).strip()
-
-                        # Make it title-like when possible
-                        if len(title) > 60:
-
-                            title = (
-                                title[:57]
-                                + "..."
-                            )
-
-                        update_conversation_title(
-                            title
-                        )
-
-                        st.session_state[
-                            "_request_logged"
-                        ] = clean_request
-
-                assistant_summary = (
-                    "Service identified: "
+                summary = (
+                    "Started action workflow for "
                     + str(
-                        result.get(
+                        service.get(
                             "service_name",
-                            "Unknown",
+                            "government service",
                         )
                     )
-                )
-
-                add_conversation_message(
-                    "assistant",
-                    assistant_summary,
                 )
 
                 st.session_state[
                     "last_ai_response"
-                ] = assistant_summary
+                ] = summary
+
+                add_conversation_message(
+                    "assistant",
+                    summary,
+                )
 
                 save_conversation_state()
 
                 st.rerun()
 
     # ========================================================
-    # IDENTIFIED SERVICE
+    # QUICK TEST
     # ========================================================
 
-    if st.session_state.get(
-        "service_identified",
-        False,
+    if not st.session_state.get(
+        "workflow_active"
     ):
 
-        service = st.session_state.get(
-            "identified_service"
+        st.divider()
+
+        st.markdown(
+            "### 🧪 Quick test"
         )
 
-        if service:
+        st.caption(
+            "Try the Telangana Income Certificate workflow."
+        )
 
-            st.divider()
+        if st.button(
+            "📄 Test Income Certificate",
+            use_container_width=True,
+        ):
+
+            test_request = (
+                "I want to apply for an income certificate"
+            )
+
+            st.session_state[
+                "typed_service_request"
+            ] = test_request
+
+            st.rerun()
+
+
+# ============================================================
+# ACTION WORKFLOW
+# ============================================================
+
+with workflow_tab:
+
+    service = st.session_state.get(
+        "identified_service"
+    )
+
+    if not service:
+
+        st.info(
+            "Start a government service from the Assistant tab."
+        )
+
+    else:
+
+        service_name = service.get(
+            "service_name",
+            "Government Service",
+        )
+
+        current_step = int(
+            st.session_state.get(
+                "workflow_step",
+                0,
+            )
+        )
+
+        steps = [
+            "Service",
+            "Requirements",
+            "Prepare",
+            "Review",
+            "Official Submission",
+        ]
+
+        st.markdown(
+            f"## 🚀 {service_name}"
+        )
+
+        st.caption(
+            "Action workflow"
+        )
+
+        # ----------------------------------------------------
+        # PROGRESS
+        # ----------------------------------------------------
+
+        progress_value = min(
+            (current_step + 1)
+            / len(steps),
+            1.0,
+        )
+
+        st.progress(
+            progress_value
+        )
+
+        progress_cols = st.columns(
+            len(steps)
+        )
+
+        for index, step_name in enumerate(
+            steps
+        ):
+
+            with progress_cols[index]:
+
+                if index < current_step:
+
+                    st.success(
+                        f"✓ {step_name}"
+                    )
+
+                elif index == current_step:
+
+                    st.info(
+                        f"● {step_name}"
+                    )
+
+                else:
+
+                    st.caption(
+                        f"○ {step_name}"
+                    )
+
+        st.divider()
+
+        # ====================================================
+        # STEP 0
+        # ====================================================
+
+        if current_step == 0:
 
             st.markdown(
-                "## 🔍 Service identified"
+                """
+                <div class="step-active">
+                <h3>1. Service identified</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
             col1, col2 = st.columns(2)
@@ -2988,1180 +2417,603 @@ with assistant_tab:
             with col1:
 
                 st.markdown(
-                    f"**Service:** "
-                    f"{service.get('service_name', 'Unknown')}"
+                    f"**Service:** {service_name}"
                 )
 
                 st.markdown(
                     f"**Category:** "
-                    f"{service.get('service_category', 'Unknown')}"
+                    f"{service.get('service_category', 'Government Service')}"
                 )
+
+                st.markdown(
+                    f"**Department:** "
+                    f"{service.get('department', 'Government Department')}"
+                )
+
+            with col2:
 
                 st.markdown(
                     f"**Jurisdiction:** "
                     f"{service.get('jurisdiction', 'Unknown')}"
                 )
 
-                st.markdown(
-                    f"**Department:** "
-                    f"{service.get('department', 'Unknown')}"
-                )
-
-            with col2:
-
                 confidence = float(
                     service.get(
                         "confidence",
-                        0,
+                        0.8,
                     )
                 )
 
                 st.metric(
-                    "AI confidence",
+                    "Identification confidence",
                     f"{confidence * 100:.0f}%",
                 )
 
-                st.markdown(
-                    f"**Intent:** "
-                    f"{service.get('intent', 'Unknown')}"
+            if service.get("note"):
+
+                st.info(
+                    service.get("note")
                 )
-
-            st.info(
-                service.get(
-                    "explanation",
-                    "Service identified.",
-                )
-            )
-
-            # ====================================================
-            # OFFICIAL URL
-            # ====================================================
-
-            official_url = st.session_state.get(
-                "official_url",
-                "",
-            )
-
-            if (
-                official_url
-                and is_official_url(
-                    official_url
-                )
-            ):
-
-                st.markdown(
-                    f"**Official portal:** "
-                    f"{official_url}"
-                )
-
-                st.link_button(
-                    "🌐 Open Official Portal",
-                    official_url,
-                )
-
-            else:
-
-                st.warning(
-                    "A verified official government portal URL "
-                    "could not be established automatically."
-                )
-
-            # ====================================================
-            # VERIFY OFFICIAL PAGE
-            # ====================================================
-
-            if (
-                official_url
-                and is_official_url(
-                    official_url
-                )
-            ):
-
-                if st.button(
-                    "🛡️ Check AI Submission Compatibility",
-                    use_container_width=True,
-                ):
-
-                    with st.spinner(
-                        "🔍 Checking the official application process..."
-                    ):
-
-                        page_result = (
-                            read_official_page(
-                                official_url
-                            )
-                        )
-
-                        if page_result.get(
-                            "success"
-                        ):
-
-                            page_text = (
-                                page_result.get(
-                                    "text",
-                                    "",
-                                )
-                            )
-
-                            barrier_result = (
-                                detect_ai_barriers(
-                                    service,
-                                    page_text,
-                                )
-                            )
-
-                            st.session_state[
-                                "official_page_text"
-                            ] = page_text
-
-                            st.session_state[
-                                "barrier_check"
-                            ] = barrier_result
-
-                            capability = (
-                                check_submission_capability(
-                                    service,
-                                    barrier_result,
-                                )
-                            )
-
-                            st.session_state[
-                                "submission_capability"
-                            ] = capability
-
-                            timeline = (
-                                verify_timeline(
-                                    service,
-                                    page_text,
-                                )
-                            )
-
-                            st.session_state[
-                                "timeline"
-                            ] = timeline
-
-                            save_conversation_state()
-
-                            st.success(
-                                "Official application process checked."
-                            )
-
-                            st.rerun()
-
-                        else:
-
-                            st.error(
-                                "The official page could not be inspected."
-                            )
-
-                            st.caption(
-                                page_result.get(
-                                    "error",
-                                    "Unknown error",
-                                )
-                            )
-
-            # ====================================================
-            # BARRIER RESULT
-            # ====================================================
-
-            barrier_check = (
-                st.session_state.get(
-                    "barrier_check"
-                )
-            )
-
-            capability = (
-                st.session_state.get(
-                    "submission_capability"
-                )
-            )
-
-            if barrier_check:
-
-                st.divider()
-
-                st.markdown(
-                    "### 🛡️ AI Submission Safety Check"
-                )
-
-                barriers = (
-                    barrier_check.get(
-                        "barriers",
-                        [],
-                    )
-                )
-
-                blocking_barriers = []
-
-                for barrier in barriers:
-
-                    if not isinstance(
-                        barrier,
-                        dict,
-                    ):
-                        continue
-
-                    if (
-                        barrier.get(
-                            "present"
-                        )
-                        and barrier.get(
-                            "blocking"
-                        )
-                    ):
-
-                        blocking_barriers.append(
-                            barrier
-                        )
-
-                if blocking_barriers:
-
-                    st.error(
-                        "🚫 Automatic AI submission is not supported for this service."
-                    )
-
-                    for barrier in blocking_barriers:
-
-                        barrier_type = (
-                            barrier.get(
-                                "type",
-                                "human verification",
-                            )
-                        )
-
-                        evidence = (
-                            barrier.get(
-                                "evidence",
-                                "",
-                            )
-                        )
-
-                        st.markdown(
-                            f"**Detected barrier:** "
-                            f"{barrier_type}"
-                        )
-
-                        if evidence:
-
-                            st.caption(
-                                evidence
-                            )
-
-                    st.info(
-                        "NextStep AI will not bypass this "
-                        "verification. Please use the official "
-                        "government portal manually."
-                    )
-
-                elif (
-                    capability
-                    and capability.get(
-                        "supported"
-                    )
-                ):
-
-                    st.success(
-                        "🟢 This service is eligible for AI-assisted submission through a configured authorized integration."
-                    )
-
-                else:
-
-                    st.warning(
-                        "🟡 Automatic submission is not currently available."
-                    )
-
-                    st.caption(
-                        capability.get(
-                            "reason",
-                            "An authorized integration is not configured.",
-                        )
-                        if capability
-                        else
-                        "The submission process could not be verified."
-                    )
-
-                human_steps = (
-                    barrier_check.get(
-                        "human_steps_required",
-                        [],
-                    )
-                )
-
-                if human_steps:
-
-                    st.markdown(
-                        "**Human action required:**"
-                    )
-
-                    for step in human_steps:
-
-                        st.markdown(
-                            f"- {step}"
-                        )
-
-            # ====================================================
-            # APPLICATION DECISION
-            # ====================================================
-
-            st.divider()
 
             st.markdown(
-                "### What would you like NextStep AI to do?"
+                "### Ready for the next step?"
             )
 
             st.caption(
-                "Choose whether you want help only, or whether "
-                "you want NextStep AI to prepare and submit the "
-                "application when an authorized integration allows it."
+                "No compatibility check is required. "
+                "NextStep AI moves directly into the service workflow."
             )
 
-            decision_col1, decision_col2 = (
-                st.columns(2)
-            )
-
-            with decision_col1:
-
-                yes_clicked = st.button(
-                    "✅ Yes, apply for me",
-                    use_container_width=True,
-                )
-
-            with decision_col2:
-
-                no_clicked = st.button(
-                    "📋 No, only show requirements",
-                    use_container_width=True,
-                )
-
-            if yes_clicked:
-
-                if not barrier_check:
-
-                    st.warning(
-                        "First run the AI Submission Compatibility Check."
-                    )
-
-                elif (
-                    capability
-                    and capability.get(
-                        "supported"
-                    )
-                ):
-
-                    st.session_state[
-                        "application_decision"
-                    ] = "yes"
-
-                    st.session_state[
-                        "application_mode"
-                    ] = True
-
-                    add_conversation_message(
-                        "user",
-                        "Yes, apply for me",
-                    )
-
-                    save_conversation_state()
-
-                    st.rerun()
-
-                else:
-
-                    st.error(
-                        "NextStep AI cannot automatically submit "
-                        "this service. No personal application "
-                        "information will be collected."
-                    )
-
-                    if official_url:
-
-                        st.link_button(
-                            "🌐 Continue on Official Portal",
-                            official_url,
-                        )
-
-            if no_clicked:
+            if st.button(
+                "➡️ Continue to Requirements",
+                type="primary",
+                use_container_width=True,
+            ):
 
                 st.session_state[
-                    "application_decision"
-                ] = "no"
-
-                st.session_state[
-                    "application_mode"
-                ] = False
-
-                add_conversation_message(
-                    "user",
-                    "No, only show requirements",
-                )
+                    "workflow_step"
+                ] = 1
 
                 save_conversation_state()
 
                 st.rerun()
 
-            # ====================================================
-            # REQUIREMENTS FOR NO MODE
-            # ====================================================
+        # ====================================================
+        # STEP 1
+        # ====================================================
 
-            if (
-                st.session_state.get(
-                    "application_decision"
-                )
-                == "no"
-            ):
-
-                st.divider()
-
-                st.markdown(
-                    "### 📋 Service Requirements"
-                )
-
-                if not st.session_state.get(
-                    "requirements"
-                ):
-
-                    with st.spinner(
-                        "Preparing requirements..."
-                    ):
-
-                        requirements = (
-                            generate_requirements(
-                                service
-                            )
-                        )
-
-                        st.session_state[
-                            "requirements"
-                        ] = requirements
-
-                        save_conversation_state()
-
-                requirements = (
-                    st.session_state.get(
-                        "requirements",
-                        {},
-                    )
-                )
-
-                for item in requirements.get(
-                    "requirements",
-                    [],
-                ):
-
-                    if isinstance(
-                        item,
-                        dict,
-                    ):
-
-                        mandatory = (
-                            "Required"
-                            if item.get(
-                                "mandatory",
-                                False,
-                            )
-                            else
-                            "May be required"
-                        )
-
-                        st.markdown(
-                            f"**{item.get('name', 'Requirement')}** "
-                            f"({mandatory})"
-                        )
-
-                        if item.get(
-                            "description"
-                        ):
-
-                            st.caption(
-                                item.get(
-                                    "description"
-                                )
-                            )
-
-                information_needed = (
-                    requirements.get(
-                        "information_needed",
-                        [],
-                    )
-                )
-
-                if information_needed:
-
-                    st.markdown(
-                        "#### Information you may need"
-                    )
-
-                    for item in information_needed:
-
-                        st.markdown(
-                            f"- {item}"
-                        )
-
-                warnings = (
-                    requirements.get(
-                        "warnings",
-                        [],
-                    )
-                )
-
-                if warnings:
-
-                    st.markdown(
-                        "#### ⚠️ Notes"
-                    )
-
-                    for warning in warnings:
-
-                        st.warning(
-                            warning
-                        )
-
-                st.info(
-                    requirements.get(
-                        "verification_note",
-                        "Verify requirements on the official government portal.",
-                    )
-                )
-
-                if official_url:
-
-                    st.link_button(
-                        "🌐 Open Official Application Portal",
-                        official_url,
-                    )
-
-
-# ============================================================
-# APPLICATION MODE
-# ============================================================
-
-with application_tab:
-
-    st.markdown(
-        "## 📝 Application Mode"
-    )
-
-    if not st.session_state.get(
-        "application_mode",
-        False,
-    ):
-
-        st.info(
-            "Choose 'Yes, apply for me' after the service "
-            "compatibility check to enter Application Mode."
-        )
-
-    else:
-
-        service = (
-            st.session_state.get(
-                "identified_service"
-            )
-        )
-
-        capability = (
-            st.session_state.get(
-                "submission_capability"
-            )
-        )
-
-        barrier_check = (
-            st.session_state.get(
-                "barrier_check"
-            )
-        )
-
-        if not service or not capability:
-
-            st.error(
-                "Application session is incomplete. "
-                "Please identify the service again."
-            )
-
-        elif not capability.get(
-            "supported",
-            False,
-        ):
-
-            st.error(
-                "This service is not currently eligible "
-                "for automatic AI submission."
-            )
-
-            st.session_state[
-                "application_mode"
-            ] = False
-
-            save_conversation_state()
-
-        else:
-
-            st.success(
-                "🟢 This service passed the AI submission checks."
-            )
+        elif current_step == 1:
 
             st.markdown(
-                f"**Service:** "
-                f"{service.get('service_name', 'Unknown')}"
+                """
+                <div class="step-active">
+                <h3>2. Requirements</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-
-            st.markdown(
-                "### Step 1: Required information"
-            )
-
-            if not st.session_state.get(
-                "requirements"
-            ):
-
-                with st.spinner(
-                    "Checking required information..."
-                ):
-
-                    st.session_state[
-                        "requirements"
-                    ] = generate_requirements(
-                        service
-                    )
-
-                    save_conversation_state()
 
             requirements = (
                 st.session_state.get(
                     "requirements",
-                    {},
+                    [],
                 )
             )
 
-            for item in requirements.get(
-                "requirements",
-                [],
-            ):
+            if not requirements:
 
-                if isinstance(
-                    item,
+                requirements = (
+                    get_requirements(
+                        service
+                    )
+                )
+
+                st.session_state[
+                    "requirements"
+                ] = requirements
+
+            for requirement in requirements:
+
+                if not isinstance(
+                    requirement,
                     dict,
                 ):
+                    continue
 
-                    st.markdown(
-                        f"- **{item.get('name', 'Requirement')}**"
-                    )
+                name = requirement.get(
+                    "name",
+                    "Requirement",
+                )
 
-            st.divider()
+                description = requirement.get(
+                    "description",
+                    "",
+                )
 
-            # ====================================================
-            # APPLICANT FORM
-            # ====================================================
+                mandatory = requirement.get(
+                    "mandatory",
+                    False,
+                )
+
+                st.markdown(
+                    f"""
+                    <div class="workflow-card">
+
+                    <strong>
+                    {'🔴' if mandatory else '🟡'} {html.escape(str(name))}
+                    </strong>
+
+                    <br>
+
+                    <span class="small-muted">
+                    {html.escape(str(description))}
+                    </span>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            st.info(
+                "The official government portal remains the final source "
+                "for the current document checklist."
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                if st.button(
+                    "⬅️ Back",
+                    use_container_width=True,
+                ):
+
+                    st.session_state[
+                        "workflow_step"
+                    ] = 0
+
+                    save_conversation_state()
+
+                    st.rerun()
+
+            with col2:
+
+                if st.button(
+                    "➡️ Continue to Preparation",
+                    type="primary",
+                    use_container_width=True,
+                ):
+
+                    st.session_state[
+                        "workflow_step"
+                    ] = 2
+
+                    save_conversation_state()
+
+                    st.rerun()
+
+        # ====================================================
+        # STEP 2
+        # ====================================================
+
+        elif current_step == 2:
 
             st.markdown(
-                "### Step 2: Applicant information"
+                """
+                <div class="step-active">
+                <h3>3. Prepare Application</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
             st.caption(
-                "Only provide information required for the application. "
-                "Never enter passwords, OTPs, PINs or payment credentials here."
+                "Prepare the basic information before opening "
+                "the official government application."
             )
 
             with st.form(
-                "application_form"
+                "preparation_form"
             ):
 
                 applicant_name = st.text_input(
-                    "Full name *"
+                    "Full name",
+                    value=st.session_state.get(
+                        "applicant_name",
+                        "",
+                    ),
                 )
 
                 phone = st.text_input(
-                    "Phone number *"
+                    "Phone number",
+                    value=st.session_state.get(
+                        "phone",
+                        "",
+                    ),
                 )
 
                 email = st.text_input(
-                    "Email address"
+                    "Email",
+                    value=st.session_state.get(
+                        "email",
+                        "",
+                    ),
                 )
 
                 address = st.text_area(
-                    "Address"
+                    "Address",
+                    value=st.session_state.get(
+                        "address",
+                        "",
+                    ),
                 )
 
                 additional_information = (
                     st.text_area(
-                        "Additional information"
+                        "Additional information",
+                        value=st.session_state.get(
+                            "additional_information",
+                            "",
+                        ),
                     )
                 )
 
-                st.markdown(
-                    "### Step 3: Review and authorization"
+                st.caption(
+                    "Do not enter passwords, OTPs, PINs, CVVs "
+                    "or other authentication secrets here."
                 )
 
-                authorization = st.checkbox(
-                    "I authorize NextStep AI to submit the above application through the configured authorized government integration."
+                continue_button = (
+                    st.form_submit_button(
+                        "➡️ Continue to Review",
+                        type="primary",
+                        use_container_width=True,
+                    )
                 )
 
-                submitted = st.form_submit_button(
-                    "🚀 Review & Submit Application",
-                    type="primary",
-                    use_container_width=True,
-                )
-
-            if submitted:
-
-                errors = []
+            if continue_button:
 
                 if not applicant_name.strip():
 
-                    errors.append(
-                        "Full name is required."
+                    st.error(
+                        "Please enter the applicant's name."
                     )
-
-                if not phone.strip():
-
-                    errors.append(
-                        "Phone number is required."
-                    )
-
-                if not authorization:
-
-                    errors.append(
-                        "You must explicitly authorize submission."
-                    )
-
-                if errors:
-
-                    for error in errors:
-
-                        st.error(
-                            error
-                        )
 
                 else:
 
                     st.session_state[
-                        "pending_application_payload"
-                    ] = {
-
-                        "service_name": service.get(
-                            "service_name",
-                            "",
-                        ),
-
-                        "category": service.get(
-                            "service_category",
-                            "",
-                        ),
-
-                        "jurisdiction": service.get(
-                            "jurisdiction",
-                            "",
-                        ),
-
-                        "department": service.get(
-                            "department",
-                            "",
-                        ),
-
-                        "applicant": {
-
-                            "name": applicant_name.strip(),
-
-                            "phone": phone.strip(),
-
-                            "email": email.strip(),
-
-                            "address": address.strip(),
-
-                            "additional_information": (
-                                additional_information.strip()
-                            ),
-                        },
-
-                        "official_portal_url": (
-                            st.session_state.get(
-                                "official_url",
-                                "",
-                            )
-                        ),
-
-                        "submission_timestamp": (
-                            datetime.now().isoformat()
-                        ),
-                    }
+                        "applicant_name"
+                    ] = applicant_name.strip()
 
                     st.session_state[
-                        "ready_to_submit"
-                    ] = True
+                        "phone"
+                    ] = phone.strip()
+
+                    st.session_state[
+                        "email"
+                    ] = email.strip()
+
+                    st.session_state[
+                        "address"
+                    ] = address.strip()
+
+                    st.session_state[
+                        "additional_information"
+                    ] = (
+                        additional_information.strip()
+                    )
+
+                    st.session_state[
+                        "workflow_step"
+                    ] = 3
 
                     save_conversation_state()
 
                     st.rerun()
 
-            # ====================================================
-            # FINAL REVIEW
-            # ====================================================
+        # ====================================================
+        # STEP 3
+        # ====================================================
 
-            if st.session_state.get(
-                "ready_to_submit",
-                False,
-            ):
+        elif current_step == 3:
 
-                st.divider()
+            st.markdown(
+                """
+                <div class="step-active">
+                <h3>4. Review</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                "### Application information"
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
 
                 st.markdown(
-                    "## 🔎 Final Review"
+                    f"**Service:** {service_name}"
                 )
 
-                payload = (
-                    st.session_state.get(
-                        "pending_application_payload",
-                        {},
-                    )
+                st.markdown(
+                    f"**Name:** "
+                    f"{st.session_state.get('applicant_name', '')}"
                 )
 
-                applicant = (
-                    payload.get(
-                        "applicant",
-                        {},
-                    )
+                st.markdown(
+                    f"**Phone:** "
+                    f"{st.session_state.get('phone', '') or 'Not provided'}"
                 )
 
-                review_col1, review_col2 = (
-                    st.columns(2)
+            with col2:
+
+                st.markdown(
+                    f"**Email:** "
+                    f"{st.session_state.get('email', '') or 'Not provided'}"
                 )
 
-                with review_col1:
-
-                    st.markdown(
-                        f"**Service:** "
-                        f"{payload.get('service_name', '')}"
-                    )
-
-                    st.markdown(
-                        f"**Name:** "
-                        f"{applicant.get('name', '')}"
-                    )
-
-                    st.markdown(
-                        f"**Phone:** "
-                        f"{applicant.get('phone', '')}"
-                    )
-
-                with review_col2:
-
-                    st.markdown(
-                        f"**Email:** "
-                        f"{applicant.get('email', '') or 'Not provided'}"
-                    )
-
-                    st.markdown(
-                        f"**Address:** "
-                        f"{applicant.get('address', '') or 'Not provided'}"
-                    )
-
-                st.warning(
-                    "Review the information carefully. "
-                    "Once submitted through the authorized integration, "
-                    "the government system controls the application."
+                st.markdown(
+                    f"**Address:** "
+                    f"{st.session_state.get('address', '') or 'Not provided'}"
                 )
 
-                confirm_col1, confirm_col2 = (
-                    st.columns(2)
+            if st.session_state.get(
+                "additional_information"
+            ):
+
+                st.markdown(
+                    "**Additional information:**"
                 )
 
-                with confirm_col1:
+                st.info(
+                    st.session_state[
+                        "additional_information"
+                    ]
+                )
 
-                    final_submit = st.button(
-                        "🚀 Submit to Government System",
-                        type="primary",
-                        use_container_width=True,
-                    )
+            st.divider()
 
-                with confirm_col2:
+            st.markdown(
+                "### What happens next?"
+            )
 
-                    cancel_submit = st.button(
-                        "✏️ Edit Information",
-                        use_container_width=True,
-                    )
+            st.markdown(
+                """
+                1. NextStep AI opens the official government service.
+                2. You complete any government authentication.
+                3. You enter/upload the required information.
+                4. You complete any CAPTCHA, OTP, payment or verification.
+                5. You submit the application on the official portal.
+                6. You save the government application/reference number.
+                """
+            )
 
-                if cancel_submit:
+            st.warning(
+                "The information above is only preparation inside "
+                "NextStep AI. It does not mean that a government "
+                "application has already been submitted."
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                if st.button(
+                    "✏️ Edit Information",
+                    use_container_width=True,
+                ):
 
                     st.session_state[
-                        "ready_to_submit"
-                    ] = False
+                        "workflow_step"
+                    ] = 2
 
                     save_conversation_state()
 
                     st.rerun()
 
-                if final_submit:
+            with col2:
 
-                    with st.spinner(
-                        "📨 Submitting through the authorized government integration..."
-                    ):
+                if st.button(
+                    "🌐 Continue to Official Submission",
+                    type="primary",
+                    use_container_width=True,
+                ):
 
-                        submission = (
-                            submit_application(
-                                payload,
-                                capability.get(
-                                    "integration"
-                                ),
-                            )
-                        )
-
-                    st.session_state[
-                        "submission_result"
-                    ] = submission
-
-                    if submission.get(
-                        "success"
-                    ):
-
-                        application_id = (
-                            submission.get(
-                                "application_id"
-                            )
-                        )
-
-                        st.session_state[
-                            "application_id"
-                        ] = application_id
-
-                        submission_date = date.today()
-
-                        timeline = (
-                            st.session_state.get(
-                                "timeline",
-                                {},
-                            )
-                        )
-
-                        processing_days = (
-                            timeline.get(
-                                "processing_days"
-                            )
-                        )
-
-                        processing_type = (
-                            timeline.get(
-                                "processing_type"
-                            )
-                        )
-
-                        expected_completion = (
-                            add_processing_days(
-                                submission_date,
-                                processing_days,
-                                processing_type,
-                            )
-                        )
-
-                        barrier_details = (
-                            barrier_check
-                            if barrier_check
-                            else {}
-                        )
-
-                        now = (
-                            datetime.now().isoformat()
-                        )
-
-                        record = {
-
-                            "application_id":
-                                application_id,
-
-                            "service_name":
-                                service.get(
-                                    "service_name",
+                    # Store a local preparation record.
+                    application_id = (
+                        save_local_application(
+                            service,
+                            {
+                                "name": st.session_state.get(
+                                    "applicant_name",
                                     "",
                                 ),
-
-                            "category":
-                                service.get(
-                                    "service_category",
-                                    "",
-                                ),
-
-                            "jurisdiction":
-                                service.get(
-                                    "jurisdiction",
-                                    "",
-                                ),
-
-                            "department":
-                                service.get(
-                                    "department",
-                                    "",
-                                ),
-
-                            "applicant_name":
-                                applicant.get(
-                                    "name",
-                                    "",
-                                ),
-
-                            "phone":
-                                applicant.get(
+                                "phone": st.session_state.get(
                                     "phone",
                                     "",
                                 ),
-
-                            "email":
-                                applicant.get(
+                                "email": st.session_state.get(
                                     "email",
                                     "",
                                 ),
-
-                            "address":
-                                applicant.get(
+                                "address": st.session_state.get(
                                     "address",
                                     "",
                                 ),
-
-                            "additional_information":
-                                applicant.get(
-                                    "additional_information",
-                                    "",
-                                ),
-
-                            "official_url":
-                                payload.get(
-                                    "official_portal_url",
-                                    "",
-                                ),
-
-                            "submission_date":
-                                submission_date.isoformat(),
-
-                            "status":
-                                "Submitted",
-
-                            "processing_days":
-                                processing_days,
-
-                            "processing_type":
-                                processing_type,
-
-                            "expected_completion_date":
-                                (
-                                    expected_completion.isoformat()
-                                    if expected_completion
-                                    else None
-                                ),
-
-                            "timeline_source":
-                                payload.get(
-                                    "official_portal_url",
-                                    "",
-                                ),
-
-                            "timeline_verified":
-                                timeline.get(
-                                    "verified",
-                                    False,
-                                ),
-
-                            "ai_submission_supported":
-                                True,
-
-                            "barrier_detected":
-                                bool(
-                                    barrier_details.get(
-                                        "barriers"
+                                "additional_information": (
+                                    st.session_state.get(
+                                        "additional_information",
+                                        "",
                                     )
                                 ),
-
-                            "barrier_details":
-                                barrier_details,
-
-                            "created_at":
-                                now,
-
-                            "updated_at":
-                                now,
-                        }
-
-                        save_application(
-                            record
+                            },
                         )
+                    )
 
-                        st.session_state[
-                            "ready_to_submit"
-                        ] = False
+                    st.session_state[
+                        "application_id"
+                    ] = application_id
 
-                        st.session_state[
-                            "last_ai_response"
-                        ] = (
-                            "Application submitted successfully. "
-                            "Application ID: "
-                            + str(
-                                application_id
-                            )
-                        )
+                    st.session_state[
+                        "workflow_step"
+                    ] = 4
 
-                        add_conversation_message(
-                            "assistant",
-                            (
-                                "Application submitted successfully. "
-                                "Application ID: "
-                                + str(
-                                    application_id
-                                )
-                            ),
-                        )
+                    save_conversation_state()
 
-                        save_conversation_state()
+                    st.rerun()
 
-                        st.success(
-                            "✅ Application submitted successfully through the configured authorized government integration."
-                        )
+        # ====================================================
+        # STEP 4
+        # ====================================================
 
-                        st.markdown(
-                            "### Application ID"
-                        )
+        elif current_step == 4:
 
-                        st.code(
-                            application_id
-                        )
+            st.markdown(
+                """
+                <div class="step-active">
+                <h3>5. Official Government Submission</h3>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-                        st.info(
-                            "Keep this application/reference number for tracking."
-                        )
+            st.success(
+                "Your preparation is complete."
+            )
 
-                        if expected_completion:
+            st.markdown(
+                f"### {service_name}"
+            )
 
-                            st.markdown(
-                                f"**Expected completion:** "
-                                f"{expected_completion.strftime('%d %B %Y')}"
-                            )
+            st.markdown(
+                """
+                The actual government application must now be
+                completed on the official government website.
 
-                            st.caption(
-                                f"Official processing timeline: "
-                                f"{processing_days} "
-                                f"{processing_type.replace('_', ' ')}."
-                            )
+                NextStep AI does not create a fake government
+                submission or pretend that an application was
+                submitted.
+                """
+            )
 
-                        else:
+            st.divider()
 
-                            st.info(
-                                "No verified processing timeline "
-                                "was found on the official page."
-                            )
+            # ------------------------------------------------
+            # DIRECT ACTION BUTTON
+            # ------------------------------------------------
 
-                    else:
+            official_url = service.get(
+                "portal_url",
+                "",
+            )
 
-                        st.error(
-                            submission.get(
-                                "message",
-                                "Submission failed.",
-                            )
-                        )
+            form_url = service.get(
+                "form_url",
+                "",
+            )
 
-                        st.info(
-                            "No fake application ID was created. "
-                            "Please use the official portal if necessary."
-                        )
+            state_url = service.get(
+                "state_service_url",
+                "",
+            )
+
+            if is_official_url(
+                official_url
+            ):
+
+                st.link_button(
+                    "🚀 OPEN OFFICIAL APPLICATION PORTAL",
+                    official_url,
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if form_url and is_official_url(
+                form_url
+            ):
+
+                st.link_button(
+                    "📄 OPEN OFFICIAL APPLICATION FORM",
+                    form_url,
+                    use_container_width=True,
+                )
+
+            if state_url and is_official_url(
+                state_url
+            ):
+
+                st.link_button(
+                    "🏛️ OPEN TELANGANA SERVICE DIRECTORY",
+                    state_url,
+                    use_container_width=True,
+                )
+
+            st.divider()
+
+            st.markdown(
+                "### 🧭 Your next actions"
+            )
+
+            service_steps = service.get(
+                "steps",
+                [],
+            )
+
+            for index, step in enumerate(
+                service_steps,
+                start=1,
+            ):
+
+                st.markdown(
+                    f"**{index}.** {step}"
+                )
+
+            st.divider()
+
+            st.markdown(
+                "### 📌 Your NextStep preparation ID"
+            )
+
+            preparation_id = (
+                st.session_state.get(
+                    "application_id"
+                )
+            )
+
+            if preparation_id:
+
+                st.code(
+                    preparation_id
+                )
+
+                st.caption(
+                    "This is a NextStep AI preparation ID, "
+                    "not a government application number."
+                )
+
+            st.warning(
+                "After submitting on the official portal, "
+                "save the government-generated application/reference "
+                "number. Use that number for official status tracking."
+            )
+
+            if st.button(
+                "🔄 Start Another Service",
+                use_container_width=True,
+            ):
+
+                reset_workflow()
+
+                save_conversation_state()
+
+                st.rerun()
 
 
 # ============================================================
-# APPLICATION STATUS TAB
+# STATUS
 # ============================================================
 
 with status_tab:
@@ -4170,147 +3022,69 @@ with status_tab:
         "## 📊 Application Status"
     )
 
-    application_id_input = st.text_input(
-        "Enter your application/reference number",
-        value=(
-            st.session_state.get(
-                "application_id"
-            )
-            or ""
-        ),
+    st.caption(
+        "Enter the application/reference number provided "
+        "by the government service."
+    )
+
+    government_application_id = st.text_input(
+        "Government application/reference number"
     )
 
     if st.button(
-        "🔄 Check Status",
+        "🔍 Check Status",
         type="primary",
         use_container_width=True,
     ):
 
-        if not application_id_input.strip():
+        if not government_application_id.strip():
 
             st.warning(
-                "Please enter an application/reference number."
+                "Enter the government application/reference number."
             )
 
         else:
 
-            with st.spinner(
-                "Checking application status..."
-            ):
+            st.info(
+                "Live government status checking requires an official "
+                "status API/integration for that service."
+            )
 
-                status_result = fetch_status(
-                    application_id_input.strip()
+            st.markdown(
+                """
+                **For the demo:**
+
+                Use the official government portal to check the
+                current status of the submitted application.
+                """
+            )
+
+            service = (
+                st.session_state.get(
+                    "identified_service"
+                )
+            )
+
+            if service:
+
+                official_url = service.get(
+                    "portal_url",
+                    "",
                 )
 
-            if not status_result.get(
-                "success"
-            ):
-
-                st.error(
-                    status_result.get(
-                        "message",
-                        "Application not found.",
-                    )
-                )
-
-            else:
-
-                status = (
-                    status_result.get(
-                        "status",
-                        "Unknown",
-                    )
-                )
-
-                st.success(
-                    f"Current status: **{status}**"
-                )
-
-                if status_result.get(
-                    "message"
+                if is_official_url(
+                    official_url
                 ):
 
-                    st.caption(
-                        status_result.get(
-                            "message"
-                        )
-                    )
-
-                raw = (
-                    status_result.get(
-                        "raw",
-                        {},
-                    )
-                )
-
-                processing_days = (
-                    raw.get(
-                        "processing_days"
-                    )
-                )
-
-                processing_type = (
-                    raw.get(
-                        "processing_type"
-                    )
-                )
-
-                expected_date_raw = (
-                    raw.get(
-                        "expected_completion_date"
-                    )
-                )
-
-                if expected_date_raw:
-
-                    try:
-
-                        expected_date = (
-                            date.fromisoformat(
-                                expected_date_raw
-                            )
-                        )
-
-                        remaining = (
-                            calculate_remaining_days(
-                                expected_date,
-                                processing_type,
-                            )
-                        )
-
-                        st.metric(
-                            "Remaining processing time",
-                            (
-                                f"{remaining} "
-                                f"{'working days' if processing_type == 'working_days' else 'days'}"
-                                if remaining is not None
-                                else "Unavailable"
-                            ),
-                        )
-
-                        st.markdown(
-                            f"**Expected completion:** "
-                            f"{expected_date.strftime('%d %B %Y')}"
-                        )
-
-                    except Exception:
-
-                        pass
-
-                if (
-                    processing_days
-                    and processing_type
-                ):
-
-                    st.caption(
-                        f"Official processing timeline: "
-                        f"{processing_days} "
-                        f"{processing_type.replace('_', ' ')}."
+                    st.link_button(
+                        "🌐 Open Official Government Portal",
+                        official_url,
+                        use_container_width=True,
                     )
 
 
 # ============================================================
-# VOICE RESPONSE
+# VOICE ASSISTANT
 # ============================================================
 
 if st.session_state.get(
@@ -4326,7 +3100,7 @@ if st.session_state.get(
     if language in TTS_SUPPORTED:
 
         if st.button(
-            "🔊 Speak Response",
+            "🔊 Speak Last Response"
         ):
 
             with st.spinner(
