@@ -6,8 +6,11 @@ import sqlite3
 import base64
 import uuid
 import html
+import os
+import tempfile
+import threading
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from urllib.parse import urlparse
 
 
@@ -27,8 +30,6 @@ st.set_page_config(
 # CONSTANTS
 # ============================================================
 
-DATABASE_FILE = "nextstep_ai.db"
-
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 
@@ -37,6 +38,34 @@ SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 
 REQUEST_TIMEOUT = 45
 
+
+# ============================================================
+# SAFE DATABASE PATH
+# ============================================================
+
+# Streamlit Cloud can sometimes make the application directory
+# unavailable for SQLite writes. Use a writable temporary folder.
+#
+# SQLite is only used for local/demo persistence.
+# The application also has an in-memory fallback.
+
+try:
+    DATABASE_FILE = os.path.join(
+        tempfile.gettempdir(),
+        "nextstep_ai.db",
+    )
+except Exception:
+    DATABASE_FILE = "nextstep_ai.db"
+
+
+DB_LOCK = threading.RLock()
+
+DATABASE_AVAILABLE = False
+
+
+# ============================================================
+# LANGUAGE SETTINGS
+# ============================================================
 
 LANGUAGE_CODES = {
     "English": "en-IN",
@@ -68,13 +97,6 @@ TTS_SUPPORTED = {
 # ============================================================
 # OFFICIAL SERVICE REGISTRY
 # ============================================================
-#
-# These are intentionally direct, known official resources.
-# The app does NOT invent a government submission endpoint.
-#
-# Actual authentication, OTP, CAPTCHA, payment and final
-# submission remain on the official government portal.
-#
 
 SERVICE_REGISTRY = {
 
@@ -88,6 +110,7 @@ SERVICE_REGISTRY = {
             "income certificate telangana",
             "income certificate ts",
         ],
+
         "service_name": "Income Certificate",
         "service_category": "Certificate",
         "jurisdiction": "Telangana",
@@ -115,7 +138,7 @@ SERVICE_REGISTRY = {
             "Review the entered information.",
             "Complete any authentication, payment or verification required by MeeSeva.",
             "Submit the application on the official government portal.",
-            "Save the application/reference number."
+            "Save the application/reference number.",
         ],
 
         "requirements": [
@@ -155,8 +178,7 @@ SERVICE_REGISTRY = {
 
         "note": (
             "The Telangana State Portal lists Income Certificate "
-            "as an online state service. The official Telangana "
-            "portal also publishes the Income Certificate form."
+            "as an online state service."
         ),
     },
 
@@ -170,6 +192,7 @@ SERVICE_REGISTRY = {
             "bc certificate",
             "obc certificate",
         ],
+
         "service_name": "Caste Certificate",
         "service_category": "Certificate",
         "jurisdiction": "Telangana",
@@ -193,15 +216,15 @@ SERVICE_REGISTRY = {
             "Review the application.",
             "Complete any required authentication or verification.",
             "Submit the application through the official portal.",
-            "Save the application/reference number."
+            "Save the application/reference number.",
         ],
 
         "requirements": [
             {
                 "name": "Applicant information",
                 "description": (
-                    "Provide the information requested by the "
-                    "official application."
+                    "Provide the information requested by "
+                    "the official application."
                 ),
                 "mandatory": True,
             },
@@ -237,6 +260,7 @@ SERVICE_REGISTRY = {
             "nativity certificate",
             "residence proof",
         ],
+
         "service_name": "Residence / Domicile Certificate",
         "service_category": "Certificate",
         "jurisdiction": "Telangana",
@@ -260,7 +284,7 @@ SERVICE_REGISTRY = {
             "Review the information.",
             "Complete any required authentication or verification.",
             "Submit through the official government portal.",
-            "Save the application/reference number."
+            "Save the application/reference number.",
         ],
 
         "requirements": [
@@ -301,6 +325,7 @@ SERVICE_REGISTRY = {
             "birth registration",
             "birth cert",
         ],
+
         "service_name": "Birth Certificate",
         "service_category": "Certificate",
         "jurisdiction": "Telangana",
@@ -328,7 +353,7 @@ SERVICE_REGISTRY = {
             "Review the application.",
             "Complete any required verification or payment.",
             "Submit through the official government portal.",
-            "Save the application/reference number."
+            "Save the application/reference number.",
         ],
 
         "requirements": [
@@ -367,6 +392,7 @@ SERVICE_REGISTRY = {
             "death registration",
             "death cert",
         ],
+
         "service_name": "Death Certificate",
         "service_category": "Certificate",
         "jurisdiction": "Telangana",
@@ -394,7 +420,7 @@ SERVICE_REGISTRY = {
             "Review the application.",
             "Complete any required verification or payment.",
             "Submit through the official government portal.",
-            "Save the application/reference number."
+            "Save the application/reference number.",
         ],
 
         "requirements": [
@@ -430,11 +456,10 @@ SERVICE_REGISTRY = {
 
 
 # ============================================================
-# DEFAULT SESSION STATE
+# SESSION STATE
 # ============================================================
 
 DEFAULT_STATE = {
-
     "conversation_id": None,
 
     "typed_service_request": "",
@@ -466,11 +491,15 @@ DEFAULT_STATE = {
     "language": "English",
 
     "_request_logged": "",
+
+    # SQLite fallback storage
+    "memory_conversations": {},
+    "memory_messages": [],
+    "memory_applications": {},
 }
 
 
 for key, value in DEFAULT_STATE.items():
-
     if key not in st.session_state:
         st.session_state[key] = value
 
@@ -480,7 +509,6 @@ for key, value in DEFAULT_STATE.items():
 # ============================================================
 
 def get_secret(name, default=""):
-
     try:
         value = st.secrets.get(name, default)
 
@@ -504,11 +532,6 @@ OPENROUTER_MODEL = get_secret(
 
 SARVAM_API_KEY = get_secret(
     "SARVAM_API_KEY"
-)
-
-HOLIDAYS_RAW = get_secret(
-    "HOLIDAYS",
-    "[]",
 )
 
 
@@ -535,13 +558,13 @@ st.markdown(
     }
 
     .hero-card {
-        padding: 28px;
-        border-radius: 22px;
+        padding: 30px;
+        border-radius: 24px;
         border: 1px solid rgba(128,128,128,0.22);
         background: linear-gradient(
             135deg,
-            rgba(80,120,255,0.10),
-            rgba(120,80,220,0.05)
+            rgba(80,120,255,0.12),
+            rgba(120,80,220,0.06)
         );
         margin-bottom: 20px;
     }
@@ -561,36 +584,17 @@ st.markdown(
         margin-bottom: 16px;
     }
 
-    .step-complete {
-        padding: 15px;
-        border-radius: 14px;
-        border: 1px solid rgba(50,180,100,0.35);
-        background: rgba(50,180,100,0.08);
-        margin-bottom: 10px;
-    }
-
-    .info-box {
-        padding: 18px;
-        border-radius: 15px;
-        border: 1px solid rgba(80,130,220,0.35);
-        background: rgba(80,130,220,0.08);
-    }
-
-    .warning-box {
-        padding: 18px;
-        border-radius: 15px;
-        border: 1px solid rgba(220,170,50,0.35);
-        background: rgba(220,170,50,0.08);
-    }
-
     .small-muted {
         font-size: 13px;
         opacity: 0.68;
     }
 
-    .conversation-title {
-        font-weight: 600;
-        font-size: 14px;
+    .feature-card {
+        padding: 20px;
+        border-radius: 18px;
+        border: 1px solid rgba(128,128,128,0.20);
+        background: rgba(128,128,128,0.035);
+        min-height: 150px;
     }
 
     </style>
@@ -600,100 +604,153 @@ st.markdown(
 
 
 # ============================================================
-# DATABASE
+# DATABASE HELPERS
 # ============================================================
 
-def get_db():
+def create_database_connection():
+    """
+    Creates a safe SQLite connection.
 
-    connection = sqlite3.connect(
-        DATABASE_FILE,
-        check_same_thread=False,
-    )
+    Important:
+    - Uses a writable temporary directory.
+    - Has timeout for temporary locking.
+    - Uses check_same_thread=False for Streamlit.
+    - Never lets a DB exception crash the entire app.
+    """
 
-    connection.row_factory = sqlite3.Row
+    try:
 
-    return connection
+        parent = os.path.dirname(
+            DATABASE_FILE
+        )
+
+        if parent:
+            os.makedirs(
+                parent,
+                exist_ok=True,
+            )
+
+        connection = sqlite3.connect(
+            DATABASE_FILE,
+            timeout=15,
+            check_same_thread=False,
+        )
+
+        connection.row_factory = sqlite3.Row
+
+        try:
+            connection.execute(
+                "PRAGMA busy_timeout = 15000"
+            )
+        except Exception:
+            pass
+
+        try:
+            connection.execute(
+                "PRAGMA journal_mode=WAL"
+            )
+        except Exception:
+            pass
+
+        return connection
+
+    except Exception:
+        return None
 
 
 def init_database():
+    """
+    Safely creates all database tables.
 
-    connection = get_db()
+    If SQLite cannot be used, the application continues
+    using Streamlit session memory.
+    """
 
-    cursor = connection.cursor()
+    global DATABASE_AVAILABLE
 
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversations (
+    with DB_LOCK:
 
-            conversation_id TEXT PRIMARY KEY,
+        connection = create_database_connection()
 
-            title TEXT NOT NULL,
+        if connection is None:
 
-            state_json TEXT,
+            DATABASE_AVAILABLE = False
 
-            created_at TEXT,
+            return False
 
-            updated_at TEXT
-        )
-        """
-    )
+        try:
 
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_messages (
+            cursor = connection.cursor()
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversations (
+                    conversation_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    state_json TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
 
-            conversation_id TEXT NOT NULL,
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT
+                )
+                """
+            )
 
-            role TEXT NOT NULL,
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS applications (
+                    application_id TEXT PRIMARY KEY,
+                    service_name TEXT,
+                    category TEXT,
+                    jurisdiction TEXT,
+                    department TEXT,
+                    applicant_name TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    address TEXT,
+                    additional_information TEXT,
+                    official_url TEXT,
+                    submission_date TEXT,
+                    status TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
 
-            content TEXT NOT NULL,
+            connection.commit()
 
-            created_at TEXT
-        )
-        """
-    )
+            DATABASE_AVAILABLE = True
 
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS applications (
+            return True
 
-            application_id TEXT PRIMARY KEY,
+        except Exception:
 
-            service_name TEXT,
+            DATABASE_AVAILABLE = False
 
-            category TEXT,
+            try:
+                connection.rollback()
+            except Exception:
+                pass
 
-            jurisdiction TEXT,
+            return False
 
-            department TEXT,
+        finally:
 
-            applicant_name TEXT,
-
-            phone TEXT,
-
-            email TEXT,
-
-            address TEXT,
-
-            additional_information TEXT,
-
-            official_url TEXT,
-
-            submission_date TEXT,
-
-            status TEXT,
-
-            created_at TEXT,
-
-            updated_at TEXT
-        )
-        """
-    )
-
-    connection.commit()
-    connection.close()
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 init_database()
@@ -704,35 +761,25 @@ init_database()
 # ============================================================
 
 CONVERSATION_STATE_KEYS = [
-
     "typed_service_request",
     "voice_text",
-
     "service_identified",
     "identified_service",
-
     "workflow_active",
     "workflow_step",
-
     "requirements",
-
     "official_url",
     "official_form_url",
     "official_state_url",
-
     "applicant_name",
     "phone",
     "email",
     "address",
     "additional_information",
-
     "application_id",
     "submission_result",
-
     "last_ai_response",
-
     "language",
-
     "_request_logged",
 ]
 
@@ -775,8 +822,20 @@ def restore_conversation_state(state):
 def reset_conversation_state():
 
     for key, value in DEFAULT_STATE.items():
+
+        if key in {
+            "memory_conversations",
+            "memory_messages",
+            "memory_applications",
+        }:
+            continue
+
         st.session_state[key] = value
 
+
+# ============================================================
+# CONVERSATION DATABASE FUNCTIONS
+# ============================================================
 
 def create_conversation(title="New Conversation"):
 
@@ -784,35 +843,70 @@ def create_conversation(title="New Conversation"):
 
     now = datetime.now().isoformat()
 
-    connection = get_db()
+    # Always maintain memory fallback.
+    st.session_state["memory_conversations"][
+        conversation_id
+    ] = {
+        "conversation_id": conversation_id,
+        "title": title,
+        "state_json": {},
+        "created_at": now,
+        "updated_at": now,
+    }
 
-    cursor = connection.cursor()
+    if not DATABASE_AVAILABLE:
+        return conversation_id
 
-    cursor.execute(
-        """
-        INSERT INTO conversations (
+    with DB_LOCK:
 
-            conversation_id,
-            title,
-            state_json,
-            created_at,
-            updated_at
+        connection = create_database_connection()
 
-        )
+        if connection is None:
+            return conversation_id
 
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            conversation_id,
-            title,
-            json.dumps({}),
-            now,
-            now,
-        ),
-    )
+        try:
 
-    connection.commit()
-    connection.close()
+            connection.execute(
+                """
+                INSERT INTO conversations
+                (
+                    conversation_id,
+                    title,
+                    state_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    title,
+                    json.dumps({}),
+                    now,
+                    now,
+                ),
+            )
+
+            connection.commit()
+
+        except Exception:
+
+            DATABASE_AVAILABLE_LOCAL = False
+
+            # Keep memory fallback alive.
+            del DATABASE_AVAILABLE_LOCAL
+
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
     return conversation_id
 
@@ -828,32 +922,70 @@ def save_conversation_state():
 
     state = get_conversation_state()
 
-    connection = get_db()
+    now = datetime.now().isoformat()
 
-    cursor = connection.cursor()
+    # Memory copy.
+    memory_conversations = st.session_state[
+        "memory_conversations"
+    ]
 
-    cursor.execute(
-        """
-        UPDATE conversations
+    if conversation_id in memory_conversations:
 
-        SET
-            state_json = ?,
-            updated_at = ?
+        memory_conversations[
+            conversation_id
+        ]["state_json"] = state
 
-        WHERE conversation_id = ?
-        """,
-        (
-            json.dumps(
-                state,
-                ensure_ascii=False,
-            ),
-            datetime.now().isoformat(),
-            conversation_id,
-        ),
-    )
+        memory_conversations[
+            conversation_id
+        ]["updated_at"] = now
 
-    connection.commit()
-    connection.close()
+    if not DATABASE_AVAILABLE:
+        return
+
+    with DB_LOCK:
+
+        connection = create_database_connection()
+
+        if connection is None:
+            return
+
+        try:
+
+            connection.execute(
+                """
+                UPDATE conversations
+
+                SET
+                    state_json = ?,
+                    updated_at = ?
+
+                WHERE conversation_id = ?
+                """,
+                (
+                    json.dumps(
+                        state,
+                        ensure_ascii=False,
+                    ),
+                    now,
+                    conversation_id,
+                ),
+            )
+
+            connection.commit()
+
+        except Exception:
+
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 def update_conversation_title(title):
@@ -877,29 +1009,64 @@ def update_conversation_title(title):
     if len(title) > 60:
         title = title[:57] + "..."
 
-    connection = get_db()
+    now = datetime.now().isoformat()
 
-    cursor = connection.cursor()
+    if conversation_id in st.session_state[
+        "memory_conversations"
+    ]:
 
-    cursor.execute(
-        """
-        UPDATE conversations
+        st.session_state[
+            "memory_conversations"
+        ][conversation_id]["title"] = title
 
-        SET
-            title = ?,
-            updated_at = ?
+        st.session_state[
+            "memory_conversations"
+        ][conversation_id]["updated_at"] = now
 
-        WHERE conversation_id = ?
-        """,
-        (
-            title,
-            datetime.now().isoformat(),
-            conversation_id,
-        ),
-    )
+    if not DATABASE_AVAILABLE:
+        return
 
-    connection.commit()
-    connection.close()
+    with DB_LOCK:
+
+        connection = create_database_connection()
+
+        if connection is None:
+            return
+
+        try:
+
+            connection.execute(
+                """
+                UPDATE conversations
+
+                SET
+                    title = ?,
+                    updated_at = ?
+
+                WHERE conversation_id = ?
+                """,
+                (
+                    title,
+                    now,
+                    conversation_id,
+                ),
+            )
+
+            connection.commit()
+
+        except Exception:
+
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 def add_conversation_message(role, content):
@@ -908,115 +1075,222 @@ def add_conversation_message(role, content):
         "conversation_id"
     )
 
-    if not conversation_id:
+    if not conversation_id or not content:
         return
 
-    if not content:
+    now = datetime.now().isoformat()
+
+    message = {
+        "conversation_id": conversation_id,
+        "role": role,
+        "content": str(content),
+        "created_at": now,
+    }
+
+    st.session_state[
+        "memory_messages"
+    ].append(message)
+
+    if not DATABASE_AVAILABLE:
         return
 
-    connection = get_db()
+    with DB_LOCK:
 
-    cursor = connection.cursor()
+        connection = create_database_connection()
 
-    cursor.execute(
-        """
-        INSERT INTO conversation_messages (
+        if connection is None:
+            return
 
-            conversation_id,
-            role,
-            content,
-            created_at
+        try:
 
-        )
+            connection.execute(
+                """
+                INSERT INTO conversation_messages
+                (
+                    conversation_id,
+                    role,
+                    content,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    role,
+                    str(content),
+                    now,
+                ),
+            )
 
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            conversation_id,
-            role,
-            str(content),
-            datetime.now().isoformat(),
-        ),
-    )
+            connection.execute(
+                """
+                UPDATE conversations
 
-    cursor.execute(
-        """
-        UPDATE conversations
+                SET updated_at = ?
 
-        SET updated_at = ?
+                WHERE conversation_id = ?
+                """,
+                (
+                    now,
+                    conversation_id,
+                ),
+            )
 
-        WHERE conversation_id = ?
-        """,
-        (
-            datetime.now().isoformat(),
-            conversation_id,
-        ),
-    )
+            connection.commit()
 
-    connection.commit()
-    connection.close()
+        except Exception:
+
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 def get_conversations():
 
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-            conversation_id,
-            title,
-            created_at,
-            updated_at
-
-        FROM conversations
-
-        ORDER BY updated_at DESC
-        """
+    memory_rows = list(
+        st.session_state[
+            "memory_conversations"
+        ].values()
     )
 
-    rows = cursor.fetchall()
+    if not DATABASE_AVAILABLE:
+        return sorted(
+            memory_rows,
+            key=lambda x: x.get(
+                "updated_at",
+                "",
+            ),
+            reverse=True,
+        )
 
-    connection.close()
+    with DB_LOCK:
 
-    return rows
+        connection = create_database_connection()
+
+        if connection is None:
+            return sorted(
+                memory_rows,
+                key=lambda x: x.get(
+                    "updated_at",
+                    "",
+                ),
+                reverse=True,
+            )
+
+        try:
+
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT
+                    conversation_id,
+                    title,
+                    created_at,
+                    updated_at
+
+                FROM conversations
+
+                ORDER BY updated_at DESC
+                """
+            )
+
+            rows = cursor.fetchall()
+
+            return rows
+
+        except Exception:
+
+            return sorted(
+                memory_rows,
+                key=lambda x: x.get(
+                    "updated_at",
+                    "",
+                ),
+                reverse=True,
+            )
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 def load_conversation(conversation_id):
 
-    connection = get_db()
+    row = None
 
-    cursor = connection.cursor()
+    if DATABASE_AVAILABLE:
 
-    cursor.execute(
-        """
-        SELECT *
+        with DB_LOCK:
 
-        FROM conversations
+            connection = create_database_connection()
 
-        WHERE conversation_id = ?
-        """,
-        (conversation_id,),
-    )
+            if connection is not None:
 
-    row = cursor.fetchone()
+                try:
 
-    connection.close()
+                    cursor = connection.cursor()
 
-    if not row:
-        return False
+                    cursor.execute(
+                        """
+                        SELECT *
 
-    try:
+                        FROM conversations
 
-        state = json.loads(
-            row["state_json"] or "{}"
+                        WHERE conversation_id = ?
+                        """,
+                        (conversation_id,),
+                    )
+
+                    row = cursor.fetchone()
+
+                except Exception:
+
+                    row = None
+
+                finally:
+
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+
+    if row:
+
+        try:
+
+            state = json.loads(
+                row["state_json"] or "{}"
+            )
+
+        except Exception:
+
+            state = {}
+
+    else:
+
+        memory_row = st.session_state[
+            "memory_conversations"
+        ].get(conversation_id)
+
+        if not memory_row:
+            return False
+
+        state = memory_row.get(
+            "state_json",
+            {},
         )
-
-    except Exception:
-
-        state = {}
 
     reset_conversation_state()
 
@@ -1034,30 +1308,68 @@ def delete_conversation(conversation_id):
     if not conversation_id:
         return
 
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        DELETE FROM conversation_messages
-
-        WHERE conversation_id = ?
-        """,
-        (conversation_id,),
+    st.session_state[
+        "memory_conversations"
+    ].pop(
+        conversation_id,
+        None,
     )
 
-    cursor.execute(
-        """
-        DELETE FROM conversations
+    st.session_state[
+        "memory_messages"
+    ] = [
+        message
+        for message in st.session_state[
+            "memory_messages"
+        ]
+        if message.get(
+            "conversation_id"
+        ) != conversation_id
+    ]
 
-        WHERE conversation_id = ?
-        """,
-        (conversation_id,),
-    )
+    if not DATABASE_AVAILABLE:
+        return
 
-    connection.commit()
-    connection.close()
+    with DB_LOCK:
+
+        connection = create_database_connection()
+
+        if connection is None:
+            return
+
+        try:
+
+            connection.execute(
+                """
+                DELETE FROM conversation_messages
+                WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            )
+
+            connection.execute(
+                """
+                DELETE FROM conversations
+                WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            )
+
+            connection.commit()
+
+        except Exception:
+
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 def ensure_current_conversation():
@@ -1123,14 +1435,26 @@ with st.sidebar:
 
     for conversation in conversations:
 
-        conversation_id = conversation[
-            "conversation_id"
-        ]
+        try:
+            conversation_id = conversation[
+                "conversation_id"
+            ]
 
-        title = (
-            conversation["title"]
-            or "New Conversation"
-        )
+            title = (
+                conversation["title"]
+                or "New Conversation"
+            )
+
+        except Exception:
+
+            conversation_id = conversation.get(
+                "conversation_id"
+            )
+
+            title = (
+                conversation.get("title")
+                or "New Conversation"
+            )
 
         display_title = title
 
@@ -1219,7 +1543,9 @@ with st.sidebar:
         ),
     )
 
-    st.session_state["language"] = language
+    st.session_state[
+        "language"
+    ] = language
 
     save_conversation_state()
 
@@ -1233,34 +1559,33 @@ with st.sidebar:
 
         Describe the government service.
 
-        **2. Start**
+        **2. Identify**
 
-        The service workflow starts immediately.
+        NextStep AI identifies the service.
 
         **3. Prepare**
 
-        Review the requirements and prepare information.
+        Review requirements and applicant information.
 
-        **4. Continue**
+        **4. Review**
 
-        Each button takes you directly to the next step.
+        Check the prepared information.
 
-        **5. Government Portal**
+        **5. Submit**
 
-        The official government portal handles authentication,
-        OTP, CAPTCHA, payment and final submission.
+        Continue to the official government portal.
 
         **6. Track**
 
-        Save the government application/reference number.
+        Save the official application/reference number.
         """
     )
 
     st.divider()
 
     st.caption(
-        "🔐 NextStep AI does not bypass CAPTCHA, OTP, "
-        "biometric verification or other government security controls."
+        "🔐 NextStep AI never bypasses CAPTCHA, OTP, "
+        "biometric verification or government security controls."
     )
 
 
@@ -1363,6 +1688,7 @@ def extract_json(text):
         return None
 
     try:
+
         return json.loads(
             text.strip()
         )
@@ -1379,6 +1705,7 @@ def extract_json(text):
     if match:
 
         try:
+
             return json.loads(
                 match.group(0)
             )
@@ -1425,7 +1752,7 @@ def is_official_url(url):
 
 
 # ============================================================
-# SERVICE MATCHING
+# TEXT NORMALIZATION
 # ============================================================
 
 def normalize_text(text):
@@ -1446,6 +1773,10 @@ def normalize_text(text):
 
     return text.strip()
 
+
+# ============================================================
+# SERVICE MATCHING
+# ============================================================
 
 def find_registry_service(user_request):
 
@@ -1506,11 +1837,8 @@ def find_registry_service(user_request):
 
 def identify_service(user_request):
 
-    # First use the verified service registry.
-    registry_match = (
-        find_registry_service(
-            user_request
-        )
+    registry_match = find_registry_service(
+        user_request
     )
 
     if registry_match:
@@ -1541,7 +1869,7 @@ Schema:
 Rules:
 
 1. Do not invent an official URL.
-2. Do not invent a government procedure.
+2. Do not invent an official government procedure.
 3. If jurisdiction is unknown, use "Unknown".
 4. confidence must be between 0 and 1.
 5. Keep the answer concise.
@@ -1573,31 +1901,29 @@ Rules:
 
         data["confidence"] = 0
 
-    data["portal_url"] = (
-        "https://www.telangana.gov.in/services/state-services/"
-        if str(
-            data.get(
-                "jurisdiction",
-                "",
-            )
-        ).lower()
-        == "telangana"
-        else ""
-    )
+    jurisdiction = str(
+        data.get(
+            "jurisdiction",
+            "",
+        )
+    ).lower()
+
+    if jurisdiction == "telangana":
+
+        data["portal_url"] = (
+            "https://www.telangana.gov.in/services/state-services/"
+        )
+
+        data["state_service_url"] = (
+            "https://www.telangana.gov.in/services/state-services/"
+        )
+
+    else:
+
+        data["portal_url"] = ""
+        data["state_service_url"] = ""
 
     data["form_url"] = ""
-
-    data["state_service_url"] = (
-        "https://www.telangana.gov.in/services/state-services/"
-        if str(
-            data.get(
-                "jurisdiction",
-                "",
-            )
-        ).lower()
-        == "telangana"
-        else ""
-    )
 
     data["steps"] = [
         "Open the official government service portal.",
@@ -1631,7 +1957,7 @@ Rules:
 
     data["note"] = (
         "For services not yet configured with a direct "
-        "workflow, NextStep AI sends the user to the "
+        "workflow, NextStep AI directs the user to the "
         "official government service directory."
     )
 
@@ -1755,7 +2081,7 @@ def text_to_speech(
     }
 
     payload = {
-        "text": text[:5000],
+        "text": str(text)[:5000],
         "target_language_code": language_code,
         "language_code": language_code,
         "model": "bulbul:v3",
@@ -1781,7 +2107,7 @@ def text_to_speech(
 
         if isinstance(
             audios,
-            list
+            list,
         ) and audios:
 
             audio_b64 = audios[0]
@@ -1823,98 +2149,146 @@ def save_local_application(
 
     now = datetime.now().isoformat()
 
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO applications (
-
-            application_id,
-            service_name,
-            category,
-            jurisdiction,
-            department,
-            applicant_name,
-            phone,
-            email,
-            address,
-            additional_information,
-            official_url,
-            submission_date,
-            status,
-            created_at,
-            updated_at
-
-        )
-
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            application_id,
-
-            service.get(
-                "service_name",
-                "",
-            ),
-
-            service.get(
-                "service_category",
-                "",
-            ),
-
-            service.get(
-                "jurisdiction",
-                "",
-            ),
-
-            service.get(
-                "department",
-                "",
-            ),
-
-            applicant.get(
-                "name",
-                "",
-            ),
-
-            applicant.get(
-                "phone",
-                "",
-            ),
-
-            applicant.get(
-                "email",
-                "",
-            ),
-
-            applicant.get(
-                "address",
-                "",
-            ),
-
-            applicant.get(
-                "additional_information",
-                "",
-            ),
-
-            service.get(
-                "portal_url",
-                "",
-            ),
-
-            date.today().isoformat(),
-
-            "Prepared - Not Submitted",
-
-            now,
-            now,
+    application = {
+        "application_id": application_id,
+        "service_name": service.get(
+            "service_name",
+            "",
         ),
-    )
+        "category": service.get(
+            "service_category",
+            "",
+        ),
+        "jurisdiction": service.get(
+            "jurisdiction",
+            "",
+        ),
+        "department": service.get(
+            "department",
+            "",
+        ),
+        "applicant_name": applicant.get(
+            "name",
+            "",
+        ),
+        "phone": applicant.get(
+            "phone",
+            "",
+        ),
+        "email": applicant.get(
+            "email",
+            "",
+        ),
+        "address": applicant.get(
+            "address",
+            "",
+        ),
+        "additional_information": applicant.get(
+            "additional_information",
+            "",
+        ),
+        "official_url": service.get(
+            "portal_url",
+            "",
+        ),
+        "submission_date": date.today().isoformat(),
+        "status": "Prepared - Not Submitted",
+        "created_at": now,
+        "updated_at": now,
+    }
 
-    connection.commit()
-    connection.close()
+    # ========================================================
+    # CRITICAL FIX
+    #
+    # Always save in memory first.
+    # Therefore the application can NEVER crash just because
+    # SQLite is unavailable.
+    # ========================================================
+
+    st.session_state[
+        "memory_applications"
+    ][application_id] = application
+
+    if not DATABASE_AVAILABLE:
+        return application_id
+
+    with DB_LOCK:
+
+        connection = create_database_connection()
+
+        if connection is None:
+            return application_id
+
+        try:
+
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO applications
+                (
+                    application_id,
+                    service_name,
+                    category,
+                    jurisdiction,
+                    department,
+                    applicant_name,
+                    phone,
+                    email,
+                    address,
+                    additional_information,
+                    official_url,
+                    submission_date,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES
+                (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    application["application_id"],
+                    application["service_name"],
+                    application["category"],
+                    application["jurisdiction"],
+                    application["department"],
+                    application["applicant_name"],
+                    application["phone"],
+                    application["email"],
+                    application["address"],
+                    application[
+                        "additional_information"
+                    ],
+                    application["official_url"],
+                    application["submission_date"],
+                    application["status"],
+                    application["created_at"],
+                    application["updated_at"],
+                ),
+            )
+
+            connection.commit()
+
+        except Exception:
+
+            # IMPORTANT:
+            # Do NOT re-raise the SQLite exception.
+            #
+            # The memory record already exists, so the user can
+            # continue using the application normally.
+
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
     return application_id
 
@@ -1927,30 +2301,59 @@ def fetch_local_status(
     application_id
 ):
 
-    connection = get_db()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        SELECT *
-
-        FROM applications
-
-        WHERE application_id = ?
-        """,
-        (application_id,),
-    )
-
-    row = cursor.fetchone()
-
-    connection.close()
-
-    if not row:
-
+    if not application_id:
         return None
 
-    return dict(row)
+    if application_id in st.session_state[
+        "memory_applications"
+    ]:
+
+        return st.session_state[
+            "memory_applications"
+        ][application_id]
+
+    if not DATABASE_AVAILABLE:
+        return None
+
+    with DB_LOCK:
+
+        connection = create_database_connection()
+
+        if connection is None:
+            return None
+
+        try:
+
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT *
+
+                FROM applications
+
+                WHERE application_id = ?
+                """,
+                (application_id,),
+            )
+
+            row = cursor.fetchone()
+
+            if row:
+                return dict(row)
+
+            return None
+
+        except Exception:
+
+            return None
+
+        finally:
+
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 # ============================================================
@@ -2053,14 +2456,71 @@ if not st.session_state.get(
 
         <p>
         Tell NextStep AI what you need.
-        It identifies the service and takes you directly
-        into the action workflow.
+        It identifies the service, explains the requirements,
+        prepares your information and takes you to the
+        official government portal.
         </p>
 
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    feature_cols = st.columns(3)
+
+    with feature_cols[0]:
+
+        st.markdown(
+            """
+            <div class="feature-card">
+
+            <h3>🔎 Discover</h3>
+
+            <p>
+            Describe a government service naturally
+            and let NextStep AI identify it.
+            </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with feature_cols[1]:
+
+        st.markdown(
+            """
+            <div class="feature-card">
+
+            <h3>📋 Prepare</h3>
+
+            <p>
+            Understand requirements and organize
+            your application information.
+            </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with feature_cols[2]:
+
+        st.markdown(
+            """
+            <div class="feature-card">
+
+            <h3>🚀 Act</h3>
+
+            <p>
+            Continue directly to the official
+            government service portal.
+            </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # ============================================================
@@ -2273,10 +2733,6 @@ with assistant_tab:
 
                 st.rerun()
 
-    # ========================================================
-    # QUICK TEST
-    # ========================================================
-
     if not st.session_state.get(
         "workflow_active"
     ):
@@ -2352,10 +2808,6 @@ with workflow_tab:
         st.caption(
             "Action workflow"
         )
-
-        # ----------------------------------------------------
-        # PROGRESS
-        # ----------------------------------------------------
 
         progress_value = min(
             (current_step + 1)
@@ -2455,15 +2907,6 @@ with workflow_tab:
                     service.get("note")
                 )
 
-            st.markdown(
-                "### Ready for the next step?"
-            )
-
-            st.caption(
-                "No compatibility check is required. "
-                "NextStep AI moves directly into the service workflow."
-            )
-
             if st.button(
                 "➡️ Continue to Requirements",
                 type="primary",
@@ -2540,7 +2983,8 @@ with workflow_tab:
                     <div class="workflow-card">
 
                     <strong>
-                    {'🔴' if mandatory else '🟡'} {html.escape(str(name))}
+                    {'🔴' if mandatory else '🟡'}
+                    {html.escape(str(name))}
                     </strong>
 
                     <br>
@@ -2555,8 +2999,8 @@ with workflow_tab:
                 )
 
             st.info(
-                "The official government portal remains the final source "
-                "for the current document checklist."
+                "The official government portal remains the final "
+                "source for the current document checklist."
             )
 
             col1, col2 = st.columns(2)
@@ -2783,10 +3227,10 @@ with workflow_tab:
             st.markdown(
                 """
                 1. NextStep AI opens the official government service.
-                2. You complete any government authentication.
+                2. You complete government authentication.
                 3. You enter/upload the required information.
-                4. You complete any CAPTCHA, OTP, payment or verification.
-                5. You submit the application on the official portal.
+                4. You complete CAPTCHA, OTP, payment or verification.
+                5. You submit on the official portal.
                 6. You save the government application/reference number.
                 """
             )
@@ -2822,7 +3266,10 @@ with workflow_tab:
                     use_container_width=True,
                 ):
 
-                    # Store a local preparation record.
+                    # ========================================
+                    # SAFE APPLICATION SAVE
+                    # ========================================
+
                     application_id = (
                         save_local_application(
                             service,
@@ -2853,6 +3300,9 @@ with workflow_tab:
                         )
                     )
 
+                    # This will ALWAYS have an ID because
+                    # memory fallback is guaranteed.
+
                     st.session_state[
                         "application_id"
                     ] = application_id
@@ -2860,6 +3310,10 @@ with workflow_tab:
                     st.session_state[
                         "workflow_step"
                     ] = 4
+
+                    st.session_state[
+                        "submission_result"
+                    ] = "prepared"
 
                     save_conversation_state()
 
@@ -2900,10 +3354,6 @@ with workflow_tab:
             )
 
             st.divider()
-
-            # ------------------------------------------------
-            # DIRECT ACTION BUTTON
-            # ------------------------------------------------
 
             official_url = service.get(
                 "portal_url",
@@ -3050,14 +3500,30 @@ with status_tab:
                 "status API/integration for that service."
             )
 
-            st.markdown(
-                """
-                **For the demo:**
-
-                Use the official government portal to check the
-                current status of the submitted application.
-                """
+            local_record = fetch_local_status(
+                government_application_id.strip()
             )
+
+            if local_record:
+
+                st.markdown(
+                    "### Local preparation record"
+                )
+
+                st.write(
+                    f"**Service:** "
+                    f"{local_record.get('service_name', '')}"
+                )
+
+                st.write(
+                    f"**Status:** "
+                    f"{local_record.get('status', '')}"
+                )
+
+                st.caption(
+                    "This is a NextStep AI preparation record. "
+                    "It is not an official government status."
+                )
 
             service = (
                 st.session_state.get(
@@ -3132,4 +3598,25 @@ if st.session_state.get(
         st.caption(
             "Voice output is not currently available "
             "for the selected language."
+        )
+
+
+# ============================================================
+# DATABASE STATUS
+# ============================================================
+
+with st.sidebar:
+
+    st.divider()
+
+    if DATABASE_AVAILABLE:
+
+        st.caption(
+            "🟢 Local storage: available"
+        )
+
+    else:
+
+        st.caption(
+            "🟡 Local storage: session fallback"
         )
