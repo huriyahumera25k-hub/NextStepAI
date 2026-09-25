@@ -24,7 +24,7 @@ st.set_page_config(
 
 
 # ============================================================
-# CONSTANTS
+# CONFIGURATION
 # ============================================================
 
 DATABASE_FILE = "nextstep_ai.db"
@@ -39,7 +39,7 @@ REQUEST_TIMEOUT = 45
 
 
 # ============================================================
-# LANGUAGE CONFIGURATION
+# LANGUAGES
 # ============================================================
 
 LANGUAGE_CODES = {
@@ -72,34 +72,37 @@ TTS_SUPPORTED = {
 # SESSION STATE
 # ============================================================
 
-DEFAULT_SESSION_STATE = {
+DEFAULT_STATE = {
     "typed_service_request": "",
     "voice_text": "",
+
     "service_identified": False,
     "identified_service": None,
+
     "application_decision": None,
+    "application_mode": False,
+
     "requirements": None,
     "timeline": None,
-    "application_id": None,
-    "last_ai_response": "",
+
     "official_url": "",
-    "submission_result": None
+
+    "application_id": None,
+    "submission_result": None,
+
+    "last_ai_response": ""
 }
 
-for key, value in DEFAULT_SESSION_STATE.items():
+for key, value in DEFAULT_STATE.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # ============================================================
-# SECRETS / ENVIRONMENT VARIABLES
+# SECRETS
 # ============================================================
 
 def get_secret(name, default=""):
-    """
-    Reads a value from Streamlit secrets first,
-    then environment variables.
-    """
 
     try:
         value = st.secrets.get(name, None)
@@ -113,13 +116,18 @@ def get_secret(name, default=""):
     return os.getenv(name, default)
 
 
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = get_secret(
+    "OPENROUTER_API_KEY"
+)
+
 OPENROUTER_MODEL = get_secret(
     "OPENROUTER_MODEL",
     DEFAULT_MODEL
 )
 
-SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
+SARVAM_API_KEY = get_secret(
+    "SARVAM_API_KEY"
+)
 
 GOVERNMENT_SUBMISSION_URL = get_secret(
     "GOVERNMENT_SUBMISSION_URL"
@@ -140,20 +148,28 @@ HOLIDAYS_RAW = get_secret(
 # ============================================================
 
 def get_holidays():
-    try:
-        holidays = json.loads(HOLIDAYS_RAW)
 
-        if isinstance(holidays, list):
+    try:
+
+        values = json.loads(
+            HOLIDAYS_RAW
+        )
+
+        if isinstance(values, list):
+
             result = set()
 
-            for item in holidays:
+            for value in values:
+
                 try:
+
                     result.add(
                         datetime.strptime(
-                            str(item),
+                            str(value),
                             "%Y-%m-%d"
                         ).date()
                     )
+
                 except Exception:
                     continue
 
@@ -174,7 +190,9 @@ HOLIDAYS = get_holidays()
 
 def init_database():
 
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = sqlite3.connect(
+        DATABASE_FILE
+    )
 
     cursor = conn.cursor()
 
@@ -182,7 +200,9 @@ def init_database():
         """
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             application_id TEXT UNIQUE,
+
             service_name TEXT,
             category TEXT,
             jurisdiction TEXT,
@@ -221,18 +241,20 @@ init_database()
 
 
 # ============================================================
-# DATABASE HELPERS
+# DATABASE SAVE
 # ============================================================
 
 def save_application(application):
 
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = sqlite3.connect(
+        DATABASE_FILE
+    )
 
     cursor = conn.cursor()
 
     cursor.execute(
         """
-        INSERT INTO applications (
+        INSERT OR REPLACE INTO applications (
             application_id,
             service_name,
             category,
@@ -262,10 +284,20 @@ def save_application(application):
             updated_at
         )
 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?,
+            ?, ?,
+            ?, ?,
+            ?,
+            ?, ?,
+            ?, ?
+        )
         """,
         (
             application["application_id"],
+
             application["service_name"],
             application["category"],
             application["jurisdiction"],
@@ -299,9 +331,15 @@ def save_application(application):
     conn.close()
 
 
+# ============================================================
+# DATABASE GET
+# ============================================================
+
 def get_application(application_id):
 
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = sqlite3.connect(
+        DATABASE_FILE
+    )
 
     cursor = conn.cursor()
 
@@ -309,6 +347,7 @@ def get_application(application_id):
         """
         SELECT
             application_id,
+
             service_name,
             category,
             jurisdiction,
@@ -337,9 +376,12 @@ def get_application(application_id):
             updated_at
 
         FROM applications
+
         WHERE application_id = ?
         """,
-        (application_id,)
+        (
+            application_id,
+        )
     )
 
     row = cursor.fetchone()
@@ -351,6 +393,7 @@ def get_application(application_id):
 
     columns = [
         "application_id",
+
         "service_name",
         "category",
         "jurisdiction",
@@ -379,46 +422,49 @@ def get_application(application_id):
         "updated_at"
     ]
 
-    return dict(zip(columns, row))
+    return dict(
+        zip(columns, row)
+    )
 
 
 # ============================================================
-# GENERAL HELPERS
+# HELPERS
 # ============================================================
 
-def clean_json_text(text):
-
-    if not text:
-        return ""
-
-    text = text.strip()
-
-    if text.startswith("```"):
-        text = re.sub(
-            r"^```(?:json)?",
-            "",
-            text,
-            flags=re.IGNORECASE
-        )
-
-        text = re.sub(
-            r"```$",
-            "",
-            text
-        )
-
-    return text.strip()
-
-
-def safe_json_loads(text, fallback=None):
+def safe_json(text, fallback=None):
 
     if fallback is None:
         fallback = {}
 
+    if not text:
+        return fallback
+
+    text = text.strip()
+
+    text = re.sub(
+        r"^```json",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"^```",
+        "",
+        text
+    )
+
+    text = re.sub(
+        r"```$",
+        "",
+        text
+    )
+
     try:
         return json.loads(
-            clean_json_text(text)
+            text.strip()
         )
+
     except Exception:
         return fallback
 
@@ -439,14 +485,18 @@ def format_date(value):
         return "Not available"
 
     try:
+
         parsed = datetime.strptime(
             str(value),
             "%Y-%m-%d"
         ).date()
 
-        return parsed.strftime("%d %B %Y")
+        return parsed.strftime(
+            "%d %B %Y"
+        )
 
     except Exception:
+
         return str(value)
 
 
@@ -465,18 +515,22 @@ def call_ai(
         return {
             "success": False,
             "error": (
-                "OPENROUTER_API_KEY is not configured. "
-                "Please add it to Streamlit Secrets."
+                "OPENROUTER_API_KEY is not configured."
             )
         }
 
     headers = {
-        "Authorization": (
-            f"Bearer {OPENROUTER_API_KEY}"
-        ),
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://streamlit.io",
-        "X-Title": "NextStep AI"
+        "Authorization":
+            f"Bearer {OPENROUTER_API_KEY}",
+
+        "Content-Type":
+            "application/json",
+
+        "HTTP-Referer":
+            "https://streamlit.io",
+
+        "X-Title":
+            "NextStep AI"
     }
 
     payload = {
@@ -509,7 +563,8 @@ def call_ai(
         data = response.json()
 
         content = (
-            data.get("choices", [{}])[0]
+            data
+            .get("choices", [{}])[0]
             .get("message", {})
             .get("content", "")
         )
@@ -518,7 +573,8 @@ def call_ai(
 
             return {
                 "success": False,
-                "error": "AI returned an empty response."
+                "error":
+                    "AI returned an empty response."
             }
 
         return {
@@ -530,35 +586,42 @@ def call_ai(
 
         return {
             "success": False,
-            "error": "AI request timed out."
+            "error":
+                "AI request timed out."
         }
 
     except requests.exceptions.RequestException as e:
 
         return {
             "success": False,
-            "error": f"AI connection error: {str(e)}"
+            "error":
+                f"AI connection error: {str(e)}"
         }
 
     except Exception as e:
 
         return {
             "success": False,
-            "error": f"Unexpected AI error: {str(e)}"
+            "error":
+                f"Unexpected AI error: {str(e)}"
         }
 
 
 # ============================================================
-# IDENTIFY GOVERNMENT SERVICE
+# IDENTIFY SERVICE
 # ============================================================
 
-def identify_service(user_request, language):
+def identify_service(
+    user_request,
+    language
+):
 
     prompt = f"""
-You are NextStep AI, an AI assistant for government and public services.
+You are NextStep AI.
 
-The user may describe any government service from any country, state,
-city, municipality, or public authority.
+You identify government and public services
+from any country, state, city, municipality,
+or public authority.
 
 User language:
 {language}
@@ -566,11 +629,9 @@ User language:
 User request:
 {user_request}
 
-Identify the most likely government/public service.
-
 Return ONLY valid JSON.
 
-Use exactly this structure:
+Use exactly:
 
 {{
     "service_name": "",
@@ -582,22 +643,20 @@ Use exactly this structure:
     "explanation": ""
 }}
 
-Important:
-- Do not invent an exact government department if it cannot be determined.
-- jurisdiction may be "Unknown".
-- department may be "Unknown".
-- confidence must be a number between 0 and 1.
-- service_name should be understandable to an ordinary citizen.
+Rules:
+
+- Do not invent an exact department.
+- Use "Unknown" when necessary.
+- confidence must be between 0 and 1.
+- service_name should be citizen-friendly.
 """
 
     result = call_ai(
         [
             {
                 "role": "system",
-                "content": (
-                    "You identify government services accurately "
-                    "and return strict JSON."
-                )
+                "content":
+                    "Identify government services accurately."
             },
             {
                 "role": "user",
@@ -609,7 +668,7 @@ Important:
     if not result["success"]:
         return result
 
-    data = safe_json_loads(
+    data = safe_json(
         result["content"],
         None
     )
@@ -618,7 +677,8 @@ Important:
 
         return {
             "success": False,
-            "error": "AI returned invalid service information."
+            "error":
+                "AI returned invalid service information."
         }
 
     data["success"] = True
@@ -627,32 +687,33 @@ Important:
 
 
 # ============================================================
-# REQUIREMENTS GENERATION
+# REQUIREMENTS
 # ============================================================
 
-def generate_requirements(service_info, language):
+def generate_requirements(
+    service,
+    language
+):
 
     prompt = f"""
-You are helping a citizen prepare for a government service.
+Prepare requirements for this government service.
 
 Service:
-{service_info.get("service_name", "Unknown")}
+{service.get("service_name", "Unknown")}
 
 Category:
-{service_info.get("service_category", "Unknown")}
+{service.get("service_category", "Unknown")}
 
 Jurisdiction:
-{service_info.get("jurisdiction", "Unknown")}
+{service.get("jurisdiction", "Unknown")}
 
 Department:
-{service_info.get("department", "Unknown")}
+{service.get("department", "Unknown")}
 
 Language:
 {language}
 
-Return ONLY valid JSON.
-
-Structure:
+Return ONLY JSON:
 
 {{
     "requirements": [
@@ -662,30 +723,28 @@ Structure:
             "mandatory": true
         }}
     ],
+
     "information_needed": [
         ""
     ],
+
     "warnings": [
         ""
     ],
+
     "verification_note": ""
 }}
 
-Important:
-- Do not claim a document is officially required unless it is reasonably
-  standard or verified.
-- Clearly state that exact requirements should be checked against the
-  relevant official government portal.
+Do not falsely claim that something is officially required.
+Tell the citizen to verify requirements on the official portal.
 """
 
     result = call_ai(
         [
             {
                 "role": "system",
-                "content": (
-                    "You explain government-service requirements "
-                    "carefully and avoid fabricating official rules."
-                )
+                "content":
+                    "Explain government requirements carefully."
             },
             {
                 "role": "user",
@@ -697,7 +756,7 @@ Important:
     if not result["success"]:
         return result
 
-    data = safe_json_loads(
+    data = safe_json(
         result["content"],
         None
     )
@@ -706,7 +765,8 @@ Important:
 
         return {
             "success": False,
-            "error": "Could not understand AI requirements."
+            "error":
+                "Invalid requirements returned by AI."
         }
 
     data["success"] = True
@@ -715,785 +775,7 @@ Important:
 
 
 # ============================================================
-# OFFICIAL URL VALIDATION
-# ============================================================
-
-def is_official_url(url):
-
-    if not url:
-        return False
-
-    try:
-
-        parsed = urlparse(url)
-
-        hostname = (
-            parsed.hostname or ""
-        ).lower()
-
-        if parsed.scheme not in {
-            "http",
-            "https"
-        }:
-            return False
-
-        allowed = (
-            hostname.endswith(".gov.in")
-            or hostname.endswith(".gov")
-            or hostname.endswith(".nic.in")
-            or hostname.endswith(".ac.in")
-            or hostname.endswith(".org.in")
-        )
-
-        return allowed
-
-    except Exception:
-
-        return False
-
-
-# ============================================================
-# READ OFFICIAL PAGE
-# ============================================================
-
-def read_official_page(url):
-
-    if not is_official_url(url):
-
-        return {
-            "success": False,
-            "error": (
-                "For timeline verification, please provide "
-                "an official government website."
-            )
-        }
-
-    try:
-
-        response = requests.get(
-            url,
-            timeout=REQUEST_TIMEOUT,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 "
-                    "NextStepAI/1.0"
-                )
-            }
-        )
-
-        if response.status_code != 200:
-
-            return {
-                "success": False,
-                "error": (
-                    f"Official page returned "
-                    f"HTTP {response.status_code}."
-                )
-            }
-
-        html = response.text
-
-        html = re.sub(
-            r"<script.*?</script>",
-            " ",
-            html,
-            flags=re.IGNORECASE | re.DOTALL
-        )
-
-        html = re.sub(
-            r"<style.*?</style>",
-            " ",
-            html,
-            flags=re.IGNORECASE | re.DOTALL
-        )
-
-        html = re.sub(
-            r"<[^>]+>",
-            " ",
-            html
-        )
-
-        html = re.sub(
-            r"\s+",
-            " ",
-            html
-        )
-
-        text = html.strip()
-
-        if not text:
-
-            return {
-                "success": False,
-                "error": "Official page contains no readable text."
-            }
-
-        return {
-            "success": True,
-            "text": text[:18000]
-        }
-
-    except requests.exceptions.Timeout:
-
-        return {
-            "success": False,
-            "error": "Official website request timed out."
-        }
-
-    except requests.exceptions.RequestException as e:
-
-        return {
-            "success": False,
-            "error": (
-                f"Could not access official website: {str(e)}"
-            )
-        }
-
-    except Exception as e:
-
-        return {
-            "success": False,
-            "error": f"Website reading error: {str(e)}"
-        }
-
-
-# ============================================================
-# VERIFY PROCESSING TIMELINE
-# ============================================================
-
-def verify_timeline(
-    official_url,
-    service_name
-):
-
-    page = read_official_page(
-        official_url
-    )
-
-    if not page["success"]:
-        return page
-
-    prompt = f"""
-You are verifying an official government service processing timeline.
-
-Service:
-{service_name}
-
-Official website:
-{official_url}
-
-Official page text:
-{page["text"]}
-
-Look ONLY for an explicitly stated processing timeline.
-
-Examples:
-- "7 working days"
-- "15 days"
-- "within 30 days"
-- "processed in 5 business days"
-
-Return ONLY valid JSON:
-
-{{
-    "verified": true,
-    "processing_days": 0,
-    "processing_type": "working_days",
-    "evidence": "",
-    "confidence": 0
-}}
-
-Rules:
-- processing_type must be either:
-  "calendar_days"
-  or
-  "working_days"
-- If the official page does NOT explicitly provide a timeline:
-  verified must be false and processing_days must be 0.
-- Do NOT guess.
-- Do NOT convert vague language into an exact number.
-"""
-
-    result = call_ai(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "You verify official processing timelines "
-                    "without inventing numbers."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0,
-        max_tokens=1000
-    )
-
-    if not result["success"]:
-        return result
-
-    data = safe_json_loads(
-        result["content"],
-        None
-    )
-
-    if not isinstance(data, dict):
-
-        return {
-            "success": False,
-            "error": "Timeline verification returned invalid data."
-        }
-
-    data["success"] = True
-    data["source"] = official_url
-
-    return data
-
-
-# ============================================================
-# WORKING DAYS
-# ============================================================
-
-def is_working_day(day):
-
-    if day.weekday() >= 5:
-        return False
-
-    if day in HOLIDAYS:
-        return False
-
-    return True
-
-
-def add_working_days(start_date, number_of_days):
-
-    current = start_date
-    added = 0
-
-    while added < number_of_days:
-
-        current += timedelta(days=1)
-
-        if is_working_day(current):
-            added += 1
-
-    return current
-
-
-def calculate_expected_completion(
-    submission_date,
-    processing_days,
-    processing_type
-):
-
-    if not submission_date:
-        return None
-
-    if processing_days is None:
-        return None
-
-    try:
-
-        processing_days = int(
-            processing_days
-        )
-
-    except Exception:
-
-        return None
-
-    if processing_days <= 0:
-        return None
-
-    if processing_type == "working_days":
-
-        return add_working_days(
-            submission_date,
-            processing_days
-        )
-
-    return (
-        submission_date
-        + timedelta(days=processing_days)
-    )
-
-
-# ============================================================
-# REMAINING DAYS
-# ============================================================
-
-def calculate_remaining_days(
-    submission_date,
-    processing_days,
-    processing_type
-):
-
-    if not submission_date:
-        return None
-
-    try:
-
-        submission = datetime.strptime(
-            str(submission_date),
-            "%Y-%m-%d"
-        ).date()
-
-    except Exception:
-
-        return None
-
-    if processing_days is None:
-        return None
-
-    try:
-
-        processing_days = int(
-            processing_days
-        )
-
-    except Exception:
-
-        return None
-
-    if processing_days <= 0:
-        return None
-
-    today = date.today()
-
-    if processing_type == "working_days":
-
-        elapsed = 0
-        current = submission
-
-        while current < today:
-
-            current += timedelta(days=1)
-
-            if is_working_day(current):
-                elapsed += 1
-
-        remaining = (
-            processing_days - elapsed
-        )
-
-    else:
-
-        elapsed = (
-            today - submission
-        ).days
-
-        remaining = (
-            processing_days - elapsed
-        )
-
-    return max(0, remaining)
-
-
-# ============================================================
-# GENERIC GOVERNMENT SUBMISSION
-# ============================================================
-
-def submit_application(application_data):
-
-    """
-    If GOVERNMENT_SUBMISSION_URL is configured,
-    submit to the authorized backend.
-
-    Otherwise create a local/demo application record.
-
-    The local mode must NOT be confused with a real
-    government submission.
-    """
-
-    if GOVERNMENT_SUBMISSION_URL:
-
-        try:
-
-            response = requests.post(
-                GOVERNMENT_SUBMISSION_URL,
-                json=application_data,
-                timeout=REQUEST_TIMEOUT
-            )
-
-            if response.status_code not in range(200, 300):
-
-                return {
-                    "success": False,
-                    "error": (
-                        "Government submission failed: "
-                        f"HTTP {response.status_code}"
-                    )
-                }
-
-            try:
-                data = response.json()
-            except Exception:
-                data = {}
-
-            application_id = (
-                data.get("application_id")
-                or data.get("applicationId")
-                or data.get("id")
-            )
-
-            if not application_id:
-
-                application_id = (
-                    generate_application_id()
-                )
-
-            return {
-                "success": True,
-                "real_submission": True,
-                "application_id": application_id,
-                "status": (
-                    data.get(
-                        "status",
-                        "Submitted"
-                    )
-                ),
-                "message": (
-                    data.get(
-                        "message",
-                        "Application submitted successfully."
-                    )
-                )
-            }
-
-        except requests.exceptions.Timeout:
-
-            return {
-                "success": False,
-                "error": (
-                    "Government submission service timed out."
-                )
-            }
-
-        except requests.exceptions.RequestException as e:
-
-            return {
-                "success": False,
-                "error": (
-                    f"Government submission error: {str(e)}"
-                )
-            }
-
-        except Exception as e:
-
-            return {
-                "success": False,
-                "error": (
-                    f"Submission error: {str(e)}"
-                )
-            }
-
-    # --------------------------------------------------------
-    # LOCAL DEMO MODE
-    # --------------------------------------------------------
-
-    application_id = generate_application_id()
-
-    return {
-        "success": True,
-        "real_submission": False,
-        "application_id": application_id,
-        "status": "Application Submitted",
-        "message": (
-            "Demo application created locally. "
-            "A real government submission requires "
-            "an authorized government backend/API."
-        )
-    }
-
-
-# ============================================================
-# STATUS API
-# ============================================================
-
-def fetch_status(application_id):
-
-    if GOVERNMENT_STATUS_URL:
-
-        try:
-
-            response = requests.post(
-                GOVERNMENT_STATUS_URL,
-                json={
-                    "application_id": application_id
-                },
-                timeout=REQUEST_TIMEOUT
-            )
-
-            if response.status_code not in range(200, 300):
-
-                return {
-                    "success": False,
-                    "error": (
-                        f"Status API returned "
-                        f"HTTP {response.status_code}"
-                    )
-                }
-
-            data = response.json()
-
-            return {
-                "success": True,
-                "status": data.get(
-                    "status",
-                    "Status unavailable"
-                ),
-                "message": data.get(
-                    "message",
-                    ""
-                ),
-                "real_status": True
-            }
-
-        except Exception as e:
-
-            return {
-                "success": False,
-                "error": (
-                    f"Status API error: {str(e)}"
-                )
-            }
-
-    # --------------------------------------------------------
-    # LOCAL STATUS
-    # --------------------------------------------------------
-
-    application = get_application(
-        application_id
-    )
-
-    if not application:
-
-        return {
-            "success": False,
-            "error": "Application ID not found."
-        }
-
-    return {
-        "success": True,
-        "status": application["status"],
-        "message": (
-            "This is the locally stored demo status. "
-            "Live government status requires an authorized API."
-        ),
-        "real_status": False
-    }
-
-
-# ============================================================
-# SPEECH TO TEXT
-# ============================================================
-
-def speech_to_text(
-    audio_bytes,
-    language
-):
-
-    if not SARVAM_API_KEY:
-
-        return {
-            "success": False,
-            "error": (
-                "SARVAM_API_KEY is not configured."
-            )
-        }
-
-    if not audio_bytes:
-
-        return {
-            "success": False,
-            "error": "No audio was received."
-        }
-
-    language_code = LANGUAGE_CODES.get(
-        language,
-        "en-IN"
-    )
-
-    headers = {
-        "api-subscription-key": SARVAM_API_KEY
-    }
-
-    files = {
-        "file": (
-            "voice.wav",
-            audio_bytes,
-            "audio/wav"
-        )
-    }
-
-    data = {
-        "model": "saaras:v4",
-        "language_code": language_code,
-        "mode": "transcribe"
-    }
-
-    try:
-
-        response = requests.post(
-            SARVAM_STT_URL,
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=REQUEST_TIMEOUT
-        )
-
-        if response.status_code != 200:
-
-            return {
-                "success": False,
-                "error": (
-                    f"Sarvam STT error "
-                    f"{response.status_code}: "
-                    f"{response.text[:500]}"
-                )
-            }
-
-        result = response.json()
-
-        transcript = (
-            result.get("transcript")
-            or result.get("text")
-            or ""
-        )
-
-        if not transcript:
-
-            return {
-                "success": False,
-                "error": "No speech was detected."
-            }
-
-        return {
-            "success": True,
-            "text": transcript
-        }
-
-    except requests.exceptions.Timeout:
-
-        return {
-            "success": False,
-            "error": "Voice recognition timed out."
-        }
-
-    except Exception as e:
-
-        return {
-            "success": False,
-            "error": (
-                f"Voice recognition error: {str(e)}"
-            )
-        }
-
-
-# ============================================================
-# TEXT TO SPEECH
-# ============================================================
-
-def text_to_speech(
-    text,
-    language
-):
-
-    if not SARVAM_API_KEY:
-
-        return {
-            "success": False,
-            "error": (
-                "SARVAM_API_KEY is not configured."
-            )
-        }
-
-    if language not in TTS_SUPPORTED:
-
-        return {
-            "success": False,
-            "error": (
-                f"Voice output is currently unavailable "
-                f"for {language}."
-            )
-        }
-
-    language_code = LANGUAGE_CODES.get(
-        language,
-        "en-IN"
-    )
-
-    headers = {
-        "api-subscription-key": SARVAM_API_KEY,
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "text": text[:5000],
-        "target_language_code": language_code,
-        "language_code": language_code,
-        "model": "bulbul:v3",
-        "speaker": "shubh"
-    }
-
-    try:
-
-        response = requests.post(
-            SARVAM_TTS_URL,
-            headers=headers,
-            json=payload,
-            timeout=REQUEST_TIMEOUT
-        )
-
-        if response.status_code != 200:
-
-            return {
-                "success": False,
-                "error": (
-                    f"Sarvam TTS error "
-                    f"{response.status_code}: "
-                    f"{response.text[:500]}"
-                )
-            }
-
-        result = response.json()
-
-        audios = result.get(
-            "audios",
-            []
-        )
-
-        if not audios:
-
-            return {
-                "success": False,
-                "error": "No audio was returned."
-            }
-
-        audio_data = base64.b64decode(
-            audios[0]
-        )
-
-        return {
-            "success": True,
-            "audio": audio_data
-        }
-
-    except Exception as e:
-
-        return {
-            "success": False,
-            "error": (
-                f"Voice output error: {str(e)}"
-            )
-        }
-
-
-# ============================================================
-# UI HELPERS
+# DISPLAY REQUIREMENTS
 # ============================================================
 
 def display_requirements(requirements):
@@ -1501,7 +783,9 @@ def display_requirements(requirements):
     if not requirements:
         return
 
-    st.subheader("📋 Service Requirements")
+    st.subheader(
+        "📋 Required Information & Documents"
+    )
 
     items = requirements.get(
         "requirements",
@@ -1530,28 +814,33 @@ def display_requirements(requirements):
             if mandatory:
 
                 st.markdown(
-                    f"**🔴 {name}**"
+                    f"🔴 **{name}**"
                 )
 
             else:
 
                 st.markdown(
-                    f"**🟢 {name}**"
+                    f"🟢 **{name}**"
                 )
 
             if description:
-                st.write(description)
 
-    information_needed = requirements.get(
+                st.write(
+                    description
+                )
+
+    information = requirements.get(
         "information_needed",
         []
     )
 
-    if information_needed:
+    if information:
 
-        st.subheader("📝 Information You May Need")
+        st.subheader(
+            "📝 Information Needed"
+        )
 
-        for item in information_needed:
+        for item in information:
 
             st.write(
                 f"• {item}"
@@ -1564,23 +853,802 @@ def display_requirements(requirements):
 
     if warnings:
 
-        st.subheader("⚠️ Important")
+        st.subheader(
+            "⚠️ Important"
+        )
 
         for warning in warnings:
 
-            st.warning(warning)
+            st.warning(
+                warning
+            )
 
     note = requirements.get(
-        "verification_note"
+        "verification_note",
+        ""
     )
 
     if note:
 
-        st.info(note)
+        st.info(
+            note
+        )
 
 
 # ============================================================
-# HEADER
+# OFFICIAL URL CHECK
+# ============================================================
+
+def is_official_url(url):
+
+    if not url:
+        return False
+
+    try:
+
+        parsed = urlparse(
+            url
+        )
+
+        hostname = (
+            parsed.hostname or ""
+        ).lower()
+
+        if parsed.scheme not in {
+            "http",
+            "https"
+        }:
+
+            return False
+
+        return (
+            hostname.endswith(".gov.in")
+            or hostname.endswith(".gov")
+            or hostname.endswith(".nic.in")
+            or hostname.endswith(".ac.in")
+            or hostname.endswith(".org.in")
+        )
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# READ OFFICIAL PAGE
+# ============================================================
+
+def read_official_page(url):
+
+    if not is_official_url(url):
+
+        return {
+            "success": False,
+            "error":
+                "Please provide an official government website."
+        }
+
+    try:
+
+        response = requests.get(
+            url,
+            timeout=REQUEST_TIMEOUT,
+            headers={
+                "User-Agent":
+                    "Mozilla/5.0 NextStepAI/1.0"
+            }
+        )
+
+        if response.status_code != 200:
+
+            return {
+                "success": False,
+                "error":
+                    f"Official page returned HTTP "
+                    f"{response.status_code}."
+            }
+
+        text = response.text
+
+        text = re.sub(
+            r"<script.*?</script>",
+            " ",
+            text,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+        text = re.sub(
+            r"<style.*?</style>",
+            " ",
+            text,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+        text = re.sub(
+            r"<[^>]+>",
+            " ",
+            text
+        )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text
+        )
+
+        return {
+            "success": True,
+            "text": text[:18000]
+        }
+
+    except requests.exceptions.Timeout:
+
+        return {
+            "success": False,
+            "error":
+                "Official website request timed out."
+        }
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "error":
+                f"Could not read official page: {str(e)}"
+        }
+
+
+# ============================================================
+# VERIFY TIMELINE
+# ============================================================
+
+def verify_timeline(
+    official_url,
+    service_name
+):
+
+    page = read_official_page(
+        official_url
+    )
+
+    if not page["success"]:
+        return page
+
+    prompt = f"""
+Verify the official processing timeline.
+
+Service:
+{service_name}
+
+Official website:
+{official_url}
+
+Page:
+{page["text"]}
+
+Look only for an explicitly stated timeline.
+
+Examples:
+7 working days
+15 days
+within 30 days
+5 business days
+
+Return ONLY:
+
+{{
+    "verified": true,
+    "processing_days": 0,
+    "processing_type": "working_days",
+    "evidence": "",
+    "confidence": 0
+}}
+
+processing_type must be:
+
+calendar_days
+
+OR
+
+working_days
+
+If no exact timeline is explicitly stated:
+verified = false
+processing_days = 0
+
+Never guess.
+"""
+
+    result = call_ai(
+        [
+            {
+                "role": "system",
+                "content":
+                    "Verify official processing timelines."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0,
+        max_tokens=1000
+    )
+
+    if not result["success"]:
+        return result
+
+    data = safe_json(
+        result["content"],
+        None
+    )
+
+    if not isinstance(data, dict):
+
+        return {
+            "success": False,
+            "error":
+                "Invalid timeline verification."
+        }
+
+    data["success"] = True
+    data["source"] = official_url
+
+    return data
+
+
+# ============================================================
+# WORKING DAYS
+# ============================================================
+
+def is_working_day(day):
+
+    if day.weekday() >= 5:
+        return False
+
+    if day in HOLIDAYS:
+        return False
+
+    return True
+
+
+def add_working_days(
+    start_date,
+    number_of_days
+):
+
+    current = start_date
+    count = 0
+
+    while count < number_of_days:
+
+        current += timedelta(
+            days=1
+        )
+
+        if is_working_day(
+            current
+        ):
+
+            count += 1
+
+    return current
+
+
+# ============================================================
+# EXPECTED DATE
+# ============================================================
+
+def calculate_expected_date(
+    submission_date,
+    processing_days,
+    processing_type
+):
+
+    if not submission_date:
+        return None
+
+    if not processing_days:
+        return None
+
+    try:
+
+        days = int(
+            processing_days
+        )
+
+    except Exception:
+
+        return None
+
+    if days <= 0:
+        return None
+
+    if processing_type == "working_days":
+
+        return add_working_days(
+            submission_date,
+            days
+        )
+
+    return (
+        submission_date
+        + timedelta(days=days)
+    )
+
+
+# ============================================================
+# DYNAMIC REMAINING DAYS
+# ============================================================
+
+def calculate_remaining_days(
+    submission_date,
+    processing_days,
+    processing_type
+):
+
+    if not submission_date:
+        return None
+
+    try:
+
+        submitted = datetime.strptime(
+            str(submission_date),
+            "%Y-%m-%d"
+        ).date()
+
+    except Exception:
+
+        return None
+
+    try:
+
+        total_days = int(
+            processing_days
+        )
+
+    except Exception:
+
+        return None
+
+    today = date.today()
+
+    if processing_type == "working_days":
+
+        elapsed = 0
+        current = submitted
+
+        while current < today:
+
+            current += timedelta(
+                days=1
+            )
+
+            if is_working_day(
+                current
+            ):
+
+                elapsed += 1
+
+        return max(
+            0,
+            total_days - elapsed
+        )
+
+    elapsed = (
+        today - submitted
+    ).days
+
+    return max(
+        0,
+        total_days - elapsed
+    )
+
+
+# ============================================================
+# GOVERNMENT SUBMISSION
+# ============================================================
+
+def submit_application(
+    payload
+):
+
+    # ========================================================
+    # REAL GOVERNMENT API
+    # ========================================================
+
+    if GOVERNMENT_SUBMISSION_URL:
+
+        try:
+
+            response = requests.post(
+                GOVERNMENT_SUBMISSION_URL,
+                json=payload,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            if response.status_code not in range(
+                200,
+                300
+            ):
+
+                return {
+                    "success": False,
+                    "error":
+                        f"Government API returned "
+                        f"HTTP {response.status_code}"
+                }
+
+            try:
+
+                data = response.json()
+
+            except Exception:
+
+                data = {}
+
+            application_id = (
+                data.get("application_id")
+                or data.get("applicationId")
+                or data.get("id")
+            )
+
+            if not application_id:
+
+                application_id = (
+                    generate_application_id()
+                )
+
+            return {
+                "success": True,
+                "real_submission": True,
+                "application_id":
+                    application_id,
+                "status":
+                    data.get(
+                        "status",
+                        "Submitted"
+                    ),
+                "message":
+                    data.get(
+                        "message",
+                        "Application submitted successfully."
+                    )
+            }
+
+        except Exception as e:
+
+            return {
+                "success": False,
+                "error":
+                    f"Government submission error: {str(e)}"
+            }
+
+    # ========================================================
+    # DEMO / LOCAL MODE
+    # ========================================================
+
+    application_id = (
+        generate_application_id()
+    )
+
+    return {
+        "success": True,
+        "real_submission": False,
+        "application_id":
+            application_id,
+        "status":
+            "Application Submitted",
+        "message":
+            "Application created in local demo mode."
+    }
+
+
+# ============================================================
+# STATUS API
+# ============================================================
+
+def fetch_status(
+    application_id
+):
+
+    # ========================================================
+    # REAL GOVERNMENT STATUS API
+    # ========================================================
+
+    if GOVERNMENT_STATUS_URL:
+
+        try:
+
+            response = requests.post(
+                GOVERNMENT_STATUS_URL,
+                json={
+                    "application_id":
+                        application_id
+                },
+                timeout=REQUEST_TIMEOUT
+            )
+
+            if response.status_code not in range(
+                200,
+                300
+            ):
+
+                return {
+                    "success": False,
+                    "error":
+                        f"Status API returned "
+                        f"HTTP {response.status_code}"
+                }
+
+            data = response.json()
+
+            return {
+                "success": True,
+                "real_status": True,
+                "status":
+                    data.get(
+                        "status",
+                        "Status unavailable"
+                    ),
+                "message":
+                    data.get(
+                        "message",
+                        ""
+                    )
+            }
+
+        except Exception as e:
+
+            return {
+                "success": False,
+                "error":
+                    f"Status API error: {str(e)}"
+            }
+
+    # ========================================================
+    # LOCAL DATABASE STATUS
+    # ========================================================
+
+    application = get_application(
+        application_id
+    )
+
+    if not application:
+
+        return {
+            "success": False,
+            "error":
+                "Application ID not found."
+        }
+
+    return {
+        "success": True,
+        "real_status": False,
+        "status":
+            application["status"],
+        "message":
+            "Status is currently stored locally. "
+            "Connect an authorized government status API "
+            "for live status."
+    }
+
+
+# ============================================================
+# SPEECH TO TEXT
+# ============================================================
+
+def speech_to_text(
+    audio_bytes,
+    language
+):
+
+    if not SARVAM_API_KEY:
+
+        return {
+            "success": False,
+            "error":
+                "SARVAM_API_KEY is not configured."
+        }
+
+    if not audio_bytes:
+
+        return {
+            "success": False,
+            "error":
+                "No audio received."
+        }
+
+    language_code = LANGUAGE_CODES.get(
+        language,
+        "en-IN"
+    )
+
+    headers = {
+        "api-subscription-key":
+            SARVAM_API_KEY
+    }
+
+    files = {
+        "file": (
+            "voice.wav",
+            audio_bytes,
+            "audio/wav"
+        )
+    }
+
+    data = {
+        "model":
+            "saaras:v4",
+
+        "language_code":
+            language_code,
+
+        "mode":
+            "transcribe"
+    }
+
+    try:
+
+        response = requests.post(
+            SARVAM_STT_URL,
+            headers=headers,
+            files=files,
+            data=data,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        if response.status_code != 200:
+
+            return {
+                "success": False,
+                "error":
+                    f"Sarvam STT error "
+                    f"{response.status_code}: "
+                    f"{response.text[:500]}"
+            }
+
+        result = response.json()
+
+        transcript = (
+            result.get("transcript")
+            or result.get("text")
+            or ""
+        )
+
+        if not transcript:
+
+            return {
+                "success": False,
+                "error":
+                    "No speech detected."
+            }
+
+        return {
+            "success": True,
+            "text":
+                transcript
+        }
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "error":
+                f"Voice recognition error: {str(e)}"
+        }
+
+
+# ============================================================
+# TEXT TO SPEECH
+# ============================================================
+
+def text_to_speech(
+    text,
+    language
+):
+
+    if not SARVAM_API_KEY:
+
+        return {
+            "success": False,
+            "error":
+                "SARVAM_API_KEY is not configured."
+        }
+
+    if language not in TTS_SUPPORTED:
+
+        return {
+            "success": False,
+            "error":
+                f"Voice output is unavailable for {language}."
+        }
+
+    language_code = LANGUAGE_CODES.get(
+        language,
+        "en-IN"
+    )
+
+    headers = {
+        "api-subscription-key":
+            SARVAM_API_KEY,
+
+        "Content-Type":
+            "application/json"
+    }
+
+    payload = {
+        "text":
+            text[:5000],
+
+        "target_language_code":
+            language_code,
+
+        "language_code":
+            language_code,
+
+        "model":
+            "bulbul:v3",
+
+        "speaker":
+            "shubh"
+    }
+
+    try:
+
+        response = requests.post(
+            SARVAM_TTS_URL,
+            headers=headers,
+            json=payload,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        if response.status_code != 200:
+
+            return {
+                "success": False,
+                "error":
+                    f"Sarvam TTS error "
+                    f"{response.status_code}: "
+                    f"{response.text[:500]}"
+            }
+
+        data = response.json()
+
+        audios = data.get(
+            "audios",
+            []
+        )
+
+        if not audios:
+
+            return {
+                "success": False,
+                "error":
+                    "No audio returned."
+            }
+
+        audio = base64.b64decode(
+            audios[0]
+        )
+
+        return {
+            "success": True,
+            "audio":
+                audio
+        }
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "error":
+                f"Voice output error: {str(e)}"
+        }
+
+
+# ============================================================
+# CUSTOM CSS
 # ============================================================
 
 st.markdown(
@@ -1599,8 +1667,8 @@ st.markdown(
         margin-bottom: 20px;
     }
 
-    .service-card {
-        padding: 20px;
+    .application-mode {
+        padding: 18px;
         border-radius: 15px;
         border: 1px solid #ddd;
         margin-top: 15px;
@@ -1612,6 +1680,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
+# ============================================================
+# HEADER
+# ============================================================
+
 st.markdown(
     '<div class="main-title">🤖 NextStep AI</div>',
     unsafe_allow_html=True
@@ -1620,7 +1693,7 @@ st.markdown(
 st.markdown(
     """
     <div class="subtitle">
-    Discover • Prepare • Submit • Track government services
+    Discover • Prepare • Submit • Track
     </div>
     """,
     unsafe_allow_html=True
@@ -1637,40 +1710,37 @@ with st.sidebar:
 
     language = st.selectbox(
         "🌐 Language",
-        list(LANGUAGE_CODES.keys()),
-        index=0
+        list(LANGUAGE_CODES.keys())
     )
 
     st.divider()
 
     st.markdown(
         """
-        ### How NextStep AI works
+        ### How it works
 
-        **1️⃣ Describe your service**
+        **1. Discover**
 
-        Tell NextStep AI what government service
-        you need.
+        Describe the government service.
 
-        **2️⃣ Identify**
+        **2. Identify**
 
-        AI identifies the likely service,
+        AI identifies the service,
         jurisdiction and department.
 
-        **3️⃣ Decide**
+        **3. Application Mode**
 
-        Choose whether you want NextStep AI
-        to prepare the application.
+        Choose whether NextStep AI
+        should help prepare the application.
 
-        **4️⃣ Submit**
+        **4. Submit**
 
-        Review your information and authorize
-        the application.
+        Review and authorize the application.
 
-        **5️⃣ Track**
+        **5. Track**
 
-        Get the application ID and monitor
-        the application status.
+        Track application status and
+        processing time.
         """
     )
 
@@ -1679,25 +1749,25 @@ with st.sidebar:
     if GOVERNMENT_SUBMISSION_URL:
 
         st.success(
-            "Government submission API configured."
+            "🟢 Government submission API connected"
         )
 
     else:
 
         st.info(
-            "Demo submission mode is active."
+            "🟡 Demo submission mode"
         )
 
     if GOVERNMENT_STATUS_URL:
 
         st.success(
-            "Government status API configured."
+            "🟢 Live status API connected"
         )
 
     else:
 
         st.info(
-            "Local status tracking is active."
+            "🟡 Local status tracking"
         )
 
 
@@ -1705,43 +1775,46 @@ with st.sidebar:
 # TABS
 # ============================================================
 
-tab_assistant, tab_application, tab_tracking = st.tabs(
+tab_assistant, tab_application, tab_status = st.tabs(
     [
         "🤖 Assistant",
-        "📝 Application",
-        "🔎 Track Status"
+        "📝 Application Mode",
+        "🔎 Application Status"
     ]
 )
 
 
 # ============================================================
-# ASSISTANT TAB
+# ASSISTANT
 # ============================================================
 
 with tab_assistant:
 
-    st.header("What government service do you need?")
+    st.header(
+        "What government service do you need?"
+    )
 
     st.write(
-        "Describe the service in your own words. "
-        "You can type or use your voice."
+        "Describe the service by typing or using your voice."
     )
 
     # --------------------------------------------------------
-    # VOICE INPUT
+    # VOICE
     # --------------------------------------------------------
 
-    st.subheader("🎙️ Voice Input")
+    st.subheader(
+        "🎙️ Voice Input"
+    )
 
     audio = st.audio_input(
-        "Record your request"
+        "Record your government-service request"
     )
 
     if audio is not None:
 
         if st.button(
             "🎤 Convert Voice to Text",
-            key="convert_voice_button"
+            key="convert_voice"
         ):
 
             with st.spinner(
@@ -1759,10 +1832,6 @@ with tab_assistant:
                     "voice_text"
                 ] = voice_result["text"]
 
-                # IMPORTANT FIX:
-                # Persist voice text into the actual
-                # service request state.
-
                 st.session_state[
                     "typed_service_request"
                 ] = voice_result["text"]
@@ -1771,6 +1840,8 @@ with tab_assistant:
                     "Voice converted successfully."
                 )
 
+                st.rerun()
+
             else:
 
                 st.error(
@@ -1778,42 +1849,44 @@ with tab_assistant:
                 )
 
     # --------------------------------------------------------
-    # SERVICE REQUEST TEXT AREA
+    # TEXT REQUEST
     # --------------------------------------------------------
 
-    typed_request = st.text_area(
+    request_text = st.text_area(
         "📝 Service request",
+
         value=st.session_state[
             "typed_service_request"
         ],
+
         key="service_request_box",
+
+        height=120,
+
         placeholder=(
-            "Example: I want to apply for a "
-            "birth certificate..."
-        ),
-        height=120
+            "Example: I want to apply for a birth certificate"
+        )
     )
 
-    # Keep the latest typed text in session state.
     st.session_state[
         "typed_service_request"
-    ] = typed_request
+    ] = request_text
 
     # --------------------------------------------------------
-    # IDENTIFY SERVICE
+    # IDENTIFY
     # --------------------------------------------------------
 
     if st.button(
         "🔍 Identify Service",
         type="primary",
         use_container_width=True,
-        key="identify_service_button"
+        key="identify_service"
     ):
 
-        if not typed_request.strip():
+        if not request_text.strip():
 
             st.warning(
-                "Please describe the government service first."
+                "Please describe a government service first."
             )
 
         else:
@@ -1823,18 +1896,15 @@ with tab_assistant:
             ):
 
                 result = identify_service(
-                    typed_request.strip(),
+                    request_text.strip(),
                     language
                 )
 
             if result["success"]:
 
                 # ====================================================
-                # IMPORTANT FIX
-                #
-                # These values are saved BEFORE rerun.
-                # Therefore the identified service survives
-                # Streamlit's rerun.
+                # IMPORTANT
+                # Persist identification BEFORE rerun.
                 # ====================================================
 
                 st.session_state[
@@ -1850,15 +1920,15 @@ with tab_assistant:
                 ] = None
 
                 st.session_state[
+                    "application_mode"
+                ] = False
+
+                st.session_state[
                     "requirements"
                 ] = None
 
                 st.session_state[
                     "timeline"
-                ] = None
-
-                st.session_state[
-                    "submission_result"
                 ] = None
 
                 st.rerun()
@@ -1870,12 +1940,7 @@ with tab_assistant:
                 )
 
     # ========================================================
-    # IMPORTANT FIX
-    #
-    # This entire section is OUTSIDE the Identify button.
-    #
-    # Therefore after Streamlit reruns, the identified service
-    # remains visible and the application decision appears.
+    # IDENTIFIED SERVICE
     # ========================================================
 
     if st.session_state.get(
@@ -1926,6 +1991,21 @@ with tab_assistant:
 
             with col2:
 
+                confidence = service.get(
+                    "confidence",
+                    0
+                )
+
+                try:
+
+                    confidence_percent = (
+                        float(confidence) * 100
+                    )
+
+                except Exception:
+
+                    confidence_percent = 0
+
                 st.markdown(
                     f"""
                     **Department**
@@ -1935,14 +2015,9 @@ with tab_assistant:
                         "Unknown"
                     )}
 
-                    **Confidence**
+                    **AI Confidence**
 
-                    {float(
-                        service.get(
-                            "confidence",
-                            0
-                        )
-                    ) * 100:.0f}%
+                    {confidence_percent:.0f}%
 
                     **Intent**
 
@@ -1953,29 +2028,28 @@ with tab_assistant:
                     """
                 )
 
-            explanation = service.get(
-                "explanation",
-                ""
-            )
-
-            if explanation:
+            if service.get(
+                "explanation"
+            ):
 
                 st.info(
-                    explanation
+                    service[
+                        "explanation"
+                    ]
                 )
 
             # ====================================================
-            # APPLICATION DECISION
+            # APPLICATION MODE
             # ====================================================
 
             st.divider()
 
             st.subheader(
-                "Would you like NextStep AI to apply for this service?"
+                "🚀 Application Mode"
             )
 
             st.write(
-                "Choose what you want NextStep AI to do next."
+                "What would you like NextStep AI to do?"
             )
 
             col1, col2 = st.columns(2)
@@ -1984,62 +2058,74 @@ with tab_assistant:
 
                 if st.button(
                     "✅ Yes, apply for me",
-                    use_container_width=True,
                     type="primary",
-                    key="yes_apply_button"
+                    use_container_width=True,
+                    key="apply_yes"
                 ):
 
                     st.session_state[
                         "application_decision"
                     ] = "yes"
 
+                    st.session_state[
+                        "application_mode"
+                    ] = True
+
                     st.rerun()
 
             with col2:
 
                 if st.button(
-                    "📋 No, show requirements only",
+                    "📋 No, only show requirements",
                     use_container_width=True,
-                    key="requirements_only_button"
+                    key="apply_no"
                 ):
 
                     st.session_state[
                         "application_decision"
                     ] = "no"
 
+                    st.session_state[
+                        "application_mode"
+                    ] = False
+
                     st.rerun()
 
             # ====================================================
-            # REQUIREMENTS ONLY
+            # REQUIREMENTS ONLY MODE
             # ====================================================
 
             if st.session_state.get(
                 "application_decision"
             ) == "no":
 
+                st.info(
+                    "📋 Requirements-only mode is active."
+                )
+
                 if st.session_state.get(
                     "requirements"
                 ) is None:
 
                     with st.spinner(
-                        "Preparing service requirements..."
+                        "Preparing requirements..."
                     ):
 
-                        req_result = generate_requirements(
+                        requirements = generate_requirements(
                             service,
                             language
                         )
 
-                    if req_result["success"]:
+                    if requirements["success"]:
 
                         st.session_state[
                             "requirements"
-                        ] = req_result
+                        ] = requirements
 
                     else:
 
                         st.error(
-                            req_result["error"]
+                            requirements["error"]
                         )
 
                 display_requirements(
@@ -2048,31 +2134,44 @@ with tab_assistant:
                     )
                 )
 
-                st.info(
-                    "No application information was collected."
+                st.success(
+                    "No applicant information was collected."
                 )
 
             # ====================================================
-            # APPLICATION PROCESS
+            # APPLICATION MODE ACTIVE
             # ====================================================
 
             if st.session_state.get(
-                "application_decision"
-            ) == "yes":
+                "application_mode",
+                False
+            ):
 
                 st.success(
-                    "Application mode activated. "
-                    "Please complete the information below."
+                    "🟢 Application Mode is active."
                 )
 
-                st.info(
-                    "Only provide information required for "
-                    "the application. Your data should be "
-                    "submitted only through an authorized "
-                    "government integration."
-                )
+                st.markdown(
+                    """
+                    Your service has been identified.
 
-                # Generate requirements first.
+                    NextStep AI will now:
+
+                    **1️⃣ Check requirements**
+
+                    **2️⃣ Collect applicant information**
+
+                    **3️⃣ Verify the processing timeline**
+
+                    **4️⃣ Ask for authorization**
+
+                    **5️⃣ Submit through the configured backend**
+
+                    **6️⃣ Generate an application ID**
+
+                    **7️⃣ Track the application status**
+                    """
+                )
 
                 if st.session_state.get(
                     "requirements"
@@ -2082,21 +2181,21 @@ with tab_assistant:
                         "Preparing application requirements..."
                     ):
 
-                        req_result = generate_requirements(
+                        requirements = generate_requirements(
                             service,
                             language
                         )
 
-                    if req_result["success"]:
+                    if requirements["success"]:
 
                         st.session_state[
                             "requirements"
-                        ] = req_result
+                        ] = requirements
 
                     else:
 
                         st.error(
-                            req_result["error"]
+                            requirements["error"]
                         )
 
                 display_requirements(
@@ -2105,36 +2204,39 @@ with tab_assistant:
                     )
                 )
 
-                st.markdown(
-                    """
-                    ### Next step
-
-                    Go to the **📝 Application** tab
-                    to enter the applicant information.
-                    """
+                st.info(
+                    "➡️ Open the **📝 Application Mode** tab "
+                    "to continue."
                 )
 
 
 # ============================================================
-# APPLICATION TAB
+# APPLICATION MODE TAB
 # ============================================================
 
 with tab_application:
 
-    st.header("📝 Application")
+    st.header(
+        "📝 Application Mode"
+    )
 
     # ========================================================
-    # FIX:
-    # Application tab is controlled by persistent session state.
+    # APPLICATION MODE NOT ACTIVE
     # ========================================================
 
-    if st.session_state.get(
-        "application_decision"
-    ) != "yes":
+    if not st.session_state.get(
+        "application_mode",
+        False
+    ):
 
         st.info(
-            "First identify a service and choose "
-            "**Yes, apply for me** in the Assistant tab."
+            "Application Mode is not active."
+        )
+
+        st.write(
+            "Go to the **🤖 Assistant** tab, "
+            "identify a service, and select "
+            "**✅ Yes, apply for me**."
         )
 
     else:
@@ -2146,14 +2248,38 @@ with tab_application:
         if not service:
 
             st.warning(
-                "No service has been selected yet."
+                "No service has been identified."
             )
 
         else:
 
             st.success(
-                f"Preparing application for: "
-                f"{service.get('service_name', 'Unknown')}"
+                "🟢 Application Mode Active"
+            )
+
+            st.markdown(
+                f"""
+                ### Selected Service
+
+                **{service.get(
+                    "service_name",
+                    "Unknown"
+                )}**
+
+                **Category:** {
+                    service.get(
+                        "service_category",
+                        "Unknown"
+                    )
+                }
+
+                **Jurisdiction:** {
+                    service.get(
+                        "jurisdiction",
+                        "Unknown"
+                    )
+                }
+                """
             )
 
             st.divider()
@@ -2166,7 +2292,7 @@ with tab_application:
                 "application_form"
             ):
 
-                applicant_name = st.text_input(
+                full_name = st.text_input(
                     "Full Name *"
                 )
 
@@ -2183,15 +2309,13 @@ with tab_application:
                 )
 
                 additional_information = st.text_area(
-                    "Additional Information",
-                    placeholder=(
-                        "Enter any other information "
-                        "relevant to this service."
-                    )
+                    "Additional Information"
                 )
 
+                st.divider()
+
                 st.subheader(
-                    "🌐 Official Service Website"
+                    "🌐 Official Service Portal"
                 )
 
                 official_url = st.text_input(
@@ -2201,44 +2325,52 @@ with tab_application:
                         ""
                     ),
                     placeholder=(
-                        "https://example.gov.in/..."
+                        "https://example.gov.in/service"
                     )
                 )
 
                 st.caption(
-                    "This is used to verify the official "
-                    "processing timeline when possible."
+                    "If available, provide the official "
+                    "government service page so NextStep AI "
+                    "can verify the processing timeline."
+                )
+
+                st.divider()
+
+                st.subheader(
+                    "🔐 Authorization"
                 )
 
                 authorization = st.checkbox(
-                    "I authorize NextStep AI to submit this application "
-                    "through an authorized government integration when configured."
+                    "I authorize NextStep AI to submit this "
+                    "application through an authorized "
+                    "government integration when configured."
                 )
 
-                submit_button = st.form_submit_button(
+                submit = st.form_submit_button(
                     "🚀 Submit Application",
                     type="primary",
                     use_container_width=True
                 )
 
-            if submit_button:
+            # ====================================================
+            # SUBMISSION
+            # ====================================================
 
-                # ------------------------------------------------
-                # VALIDATION
-                # ------------------------------------------------
+            if submit:
 
                 errors = []
 
-                if not applicant_name.strip():
+                if not full_name.strip():
 
                     errors.append(
-                        "Full name is required."
+                        "Full Name is required."
                     )
 
                 if not phone.strip():
 
                     errors.append(
-                        "Phone number is required."
+                        "Phone Number is required."
                     )
 
                 if not address.strip():
@@ -2250,8 +2382,7 @@ with tab_application:
                 if not authorization:
 
                     errors.append(
-                        "You must provide authorization "
-                        "before submitting."
+                        "Authorization is required."
                     )
 
                 if errors:
@@ -2268,16 +2399,16 @@ with tab_application:
                         "official_url"
                     ] = official_url.strip()
 
-                    # ------------------------------------------------
+                    # ==================================================
                     # VERIFY TIMELINE
-                    # ------------------------------------------------
+                    # ==================================================
 
                     timeline = None
 
                     if official_url.strip():
 
                         with st.spinner(
-                            "Verifying official processing timeline..."
+                            "Checking official processing timeline..."
                         ):
 
                             timeline = verify_timeline(
@@ -2288,35 +2419,38 @@ with tab_application:
                                 )
                             )
 
-                        if not timeline["success"]:
+                        if timeline["success"]:
+
+                            if timeline.get(
+                                "verified",
+                                False
+                            ):
+
+                                st.success(
+                                    "✅ Official processing timeline verified."
+                                )
+
+                                st.session_state[
+                                    "timeline"
+                                ] = timeline
+
+                            else:
+
+                                st.warning(
+                                    "The official website did not "
+                                    "provide a clearly verifiable "
+                                    "processing timeline."
+                                )
+
+                        else:
 
                             st.warning(
                                 timeline["error"]
                             )
 
-                        elif timeline.get(
-                            "verified",
-                            False
-                        ):
-
-                            st.success(
-                                "Official processing timeline verified."
-                            )
-
-                            st.session_state[
-                                "timeline"
-                            ] = timeline
-
-                        else:
-
-                            st.warning(
-                                "The official website did not provide "
-                                "a clearly verifiable processing timeline."
-                            )
-
-                    # ------------------------------------------------
-                    # TIMELINE VALUES
-                    # ------------------------------------------------
+                    # ==================================================
+                    # TIMELINE
+                    # ==================================================
 
                     verified_timeline = (
                         st.session_state.get(
@@ -2358,166 +2492,193 @@ with tab_application:
                     else:
 
                         processing_days = 0
-                        processing_type = "calendar_days"
-                        timeline_source = ""
-                        timeline_verified = 0
 
-                    # ------------------------------------------------
-                    # SUBMISSION DATE
-                    # ------------------------------------------------
+                        processing_type = (
+                            "calendar_days"
+                        )
+
+                        timeline_source = ""
+
+                        timeline_verified = 0
 
                     submission_date = date.today()
 
                     expected_date = (
-                        calculate_expected_completion(
+                        calculate_expected_date(
                             submission_date,
                             processing_days,
                             processing_type
                         )
                     )
 
-                    # ------------------------------------------------
-                    # APPLICATION PAYLOAD
-                    # ------------------------------------------------
+                    # ==================================================
+                    # PAYLOAD
+                    # ==================================================
 
-                    application_payload = {
+                    payload = {
 
                         "service": {
-                            "name": service.get(
-                                "service_name",
-                                ""
-                            ),
-                            "category": service.get(
-                                "service_category",
-                                ""
-                            ),
-                            "jurisdiction": service.get(
-                                "jurisdiction",
-                                ""
-                            ),
-                            "department": service.get(
-                                "department",
-                                ""
-                            )
+
+                            "name":
+                                service.get(
+                                    "service_name",
+                                    ""
+                                ),
+
+                            "category":
+                                service.get(
+                                    "service_category",
+                                    ""
+                                ),
+
+                            "jurisdiction":
+                                service.get(
+                                    "jurisdiction",
+                                    ""
+                                ),
+
+                            "department":
+                                service.get(
+                                    "department",
+                                    ""
+                                )
                         },
 
                         "applicant": {
-                            "full_name": applicant_name.strip(),
-                            "phone": phone.strip(),
-                            "email": email.strip(),
-                            "address": address.strip(),
-                            "additional_information": (
+
+                            "full_name":
+                                full_name.strip(),
+
+                            "phone":
+                                phone.strip(),
+
+                            "email":
+                                email.strip(),
+
+                            "address":
+                                address.strip(),
+
+                            "additional_information":
                                 additional_information.strip()
-                            )
                         },
 
-                        "official_service_url": (
-                            official_url.strip()
-                        ),
+                        "official_service_url":
+                            official_url.strip(),
 
-                        "submitted_at": (
+                        "submission_date":
                             submission_date.isoformat()
-                        )
                     }
 
-                    # ------------------------------------------------
+                    # ==================================================
                     # SUBMIT
-                    # ------------------------------------------------
+                    # ==================================================
 
                     with st.spinner(
                         "Submitting application..."
                     ):
 
-                        submission = submit_application(
-                            application_payload
+                        result = submit_application(
+                            payload
                         )
 
-                    if not submission["success"]:
+                    if not result["success"]:
 
                         st.error(
-                            submission["error"]
+                            result["error"]
                         )
 
                     else:
 
                         application_id = (
-                            submission[
+                            result[
                                 "application_id"
                             ]
                         )
 
-                        status = submission.get(
+                        status = result.get(
                             "status",
-                            "Submitted"
+                            "Application Submitted"
                         )
 
                         now = datetime.now().isoformat()
 
                         application_record = {
 
-                            "application_id": application_id,
+                            "application_id":
+                                application_id,
 
-                            "service_name": service.get(
-                                "service_name",
-                                ""
-                            ),
+                            "service_name":
+                                service.get(
+                                    "service_name",
+                                    ""
+                                ),
 
-                            "category": service.get(
-                                "service_category",
-                                ""
-                            ),
+                            "category":
+                                service.get(
+                                    "service_category",
+                                    ""
+                                ),
 
-                            "jurisdiction": service.get(
-                                "jurisdiction",
-                                ""
-                            ),
+                            "jurisdiction":
+                                service.get(
+                                    "jurisdiction",
+                                    ""
+                                ),
 
-                            "department": service.get(
-                                "department",
-                                ""
-                            ),
+                            "department":
+                                service.get(
+                                    "department",
+                                    ""
+                                ),
 
-                            "applicant_name": applicant_name.strip(),
+                            "applicant_name":
+                                full_name.strip(),
 
-                            "phone": phone.strip(),
+                            "phone":
+                                phone.strip(),
 
-                            "email": email.strip(),
+                            "email":
+                                email.strip(),
 
-                            "address": address.strip(),
+                            "address":
+                                address.strip(),
 
-                            "additional_information": (
-                                additional_information.strip()
-                            ),
+                            "additional_information":
+                                additional_information.strip(),
 
-                            "official_url": (
-                                official_url.strip()
-                            ),
+                            "official_url":
+                                official_url.strip(),
 
-                            "submission_date": (
-                                submission_date.isoformat()
-                            ),
+                            "submission_date":
+                                submission_date.isoformat(),
 
-                            "status": status,
+                            "status":
+                                status,
 
-                            "processing_days": processing_days,
+                            "processing_days":
+                                processing_days,
 
-                            "processing_type": processing_type,
+                            "processing_type":
+                                processing_type,
 
-                            "expected_completion_date": (
-                                expected_date.isoformat()
-                                if expected_date
-                                else None
-                            ),
+                            "expected_completion_date":
+                                (
+                                    expected_date.isoformat()
+                                    if expected_date
+                                    else None
+                                ),
 
-                            "timeline_source": timeline_source,
+                            "timeline_source":
+                                timeline_source,
 
-                            "timeline_verified": (
-                                timeline_verified
-                            ),
+                            "timeline_verified":
+                                timeline_verified,
 
-                            "created_at": now,
+                            "created_at":
+                                now,
 
-                            "updated_at": now
+                            "updated_at":
+                                now
                         }
 
                         try:
@@ -2532,96 +2693,108 @@ with tab_application:
 
                             st.session_state[
                                 "submission_result"
-                            ] = submission
+                            ] = result
 
                             st.success(
-                                "🎉 Application process completed."
+                                "🎉 Application submitted successfully."
                             )
 
                             st.markdown(
                                 f"""
-                                ### 🆔 Application ID
+                                ## 🆔 Application ID
 
-                                ## `{application_id}`
+                                # `{application_id}`
                                 """
                             )
 
-                            if submission.get(
+                            st.write(
+                                f"**Current Status:** {status}"
+                            )
+
+                            if result.get(
                                 "real_submission",
                                 False
                             ):
 
                                 st.success(
-                                    "This application was sent "
-                                    "through the configured "
+                                    "🟢 Sent through the configured "
                                     "government integration."
                                 )
 
                             else:
 
                                 st.warning(
-                                    "⚠️ Demo/local mode: this is "
-                                    "not a real government submission. "
-                                    "Configure an authorized government "
-                                    "backend/API for real submission."
+                                    "🟡 Demo mode: this application "
+                                    "is stored locally. A real "
+                                    "government submission requires "
+                                    "an authorized government API."
                                 )
-
-                            st.write(
-                                f"**Status:** {status}"
-                            )
 
                             if expected_date:
 
-                                st.write(
+                                st.info(
                                     "**Expected completion:** "
-                                    f"{format_date(expected_date)}"
+                                    + format_date(
+                                        expected_date
+                                    )
                                 )
 
                             else:
 
                                 st.info(
-                                    "No verified official processing "
-                                    "timeline was available."
+                                    "No verified processing timeline "
+                                    "was available."
                                 )
 
-                            st.info(
-                                "Go to **🔎 Track Status** to monitor "
-                                "this application."
+                            st.success(
+                                "➡️ Open the **🔎 Application Status** "
+                                "tab to track it."
                             )
 
                         except Exception as e:
 
                             st.error(
-                                f"Could not save application: {str(e)}"
+                                "Could not save the application: "
+                                + str(e)
                             )
 
 
 # ============================================================
-# TRACK STATUS TAB
+# APPLICATION STATUS TAB
 # ============================================================
 
-with tab_tracking:
+with tab_status:
 
-    st.header("🔎 Track Application")
-
-    default_id = st.session_state.get(
-        "application_id",
-        ""
+    st.header(
+        "🔎 Application Status"
     )
 
-    application_id_input = st.text_input(
+    st.write(
+        "Enter your application ID to check the "
+        "current status and remaining processing time."
+    )
+
+    default_application_id = (
+        st.session_state.get(
+            "application_id",
+            ""
+        )
+    )
+
+    application_id = st.text_input(
         "Application ID",
-        value=default_id,
-        placeholder="Example: NS-20260925-AB12CD34"
+        value=default_application_id,
+        placeholder="NS-20260925-XXXXXXXX"
     )
 
     if st.button(
-        "🔎 Check Status",
+        "🔎 Check Application Status",
         type="primary",
-        use_container_width=True
+        use_container_width=True,
+        key="check_status"
     ):
 
-        if not application_id_input.strip():
+        if not application_id.strip():
 
             st.warning(
                 "Please enter an application ID."
@@ -2634,7 +2807,7 @@ with tab_tracking:
             ):
 
                 status_result = fetch_status(
-                    application_id_input.strip()
+                    application_id.strip()
                 )
 
             if not status_result["success"]:
@@ -2646,31 +2819,67 @@ with tab_tracking:
             else:
 
                 application = get_application(
-                    application_id_input.strip()
+                    application_id.strip()
                 )
+
+                # ==================================================
+                # STATUS
+                # ==================================================
 
                 st.subheader(
-                    "📌 Application Status"
+                    "📌 Current Application Status"
                 )
 
-                st.success(
-                    status_result.get(
-                        "status",
-                        "Status unavailable"
-                    )
+                current_status = status_result.get(
+                    "status",
+                    "Status unavailable"
                 )
+
+                if current_status.lower() in {
+                    "approved",
+                    "completed",
+                    "delivered"
+                }:
+
+                    st.success(
+                        f"✅ {current_status}"
+                    )
+
+                elif current_status.lower() in {
+                    "rejected",
+                    "cancelled",
+                    "failed"
+                }:
+
+                    st.error(
+                        f"❌ {current_status}"
+                    )
+
+                else:
+
+                    st.info(
+                        f"🔄 {current_status}"
+                    )
 
                 if status_result.get(
                     "message"
                 ):
 
-                    st.info(
+                    st.caption(
                         status_result["message"]
                     )
+
+                # ==================================================
+                # APPLICATION DETAILS
+                # ==================================================
 
                 if application:
 
                     st.divider()
+
+                    st.subheader(
+                        "📄 Application Details"
+                    )
 
                     col1, col2 = st.columns(2)
 
@@ -2686,6 +2895,10 @@ with tab_tracking:
 
                             {application["service_name"]}
 
+                            **Category**
+
+                            {application["category"]}
+
                             **Jurisdiction**
 
                             {application["jurisdiction"]}
@@ -2700,30 +2913,38 @@ with tab_tracking:
 
                         st.markdown(
                             f"""
-                            **Submitted**
+                            **Submitted On**
 
                             {format_date(
                                 application["submission_date"]
                             )}
 
-                            **Processing timeline**
+                            **Processing Type**
+
+                            {application["processing_type"]}
+
+                            **Official Timeline**
 
                             {
-                                (
-                                    str(application["processing_days"])
-                                    + " "
-                                    + application["processing_type"]
+                                str(
+                                    application["processing_days"]
                                 )
+                                + " day(s)"
                                 if application["processing_days"]
-                                else
-                                "Not verified"
+                                else "Not verified"
                             }
                             """
                         )
 
-                    # ------------------------------------------------
+                    # ==================================================
                     # DYNAMIC COUNTDOWN
-                    # ------------------------------------------------
+                    # ==================================================
+
+                    st.divider()
+
+                    st.subheader(
+                        "⏳ Processing Timeline"
+                    )
 
                     if application[
                         "processing_days"
@@ -2734,92 +2955,127 @@ with tab_tracking:
                                 application[
                                     "submission_date"
                                 ],
+
                                 application[
                                     "processing_days"
                                 ],
+
                                 application[
                                     "processing_type"
                                 ]
                             )
                         )
 
-                        expected = (
-                            application[
-                                "expected_completion_date"
-                            ]
-                        )
+                        expected = application[
+                            "expected_completion_date"
+                        ]
 
-                        st.divider()
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+
+                            if remaining is not None:
+
+                                st.metric(
+                                    "Days Remaining",
+                                    f"{remaining}"
+                                )
+
+                        with col2:
+
+                            st.metric(
+                                "Official Timeline",
+                                (
+                                    f"{application['processing_days']} "
+                                    f"day(s)"
+                                )
+                            )
+
+                        with col3:
+
+                            if expected:
+
+                                st.metric(
+                                    "Expected Completion",
+                                    format_date(
+                                        expected
+                                    )
+                                )
 
                         if remaining is not None:
 
                             if remaining > 0:
 
-                                st.metric(
-                                    "⏳ Estimated Time Remaining",
-                                    f"{remaining} day(s)"
+                                st.success(
+                                    f"⏳ Approximately "
+                                    f"{remaining} day(s) remaining "
+                                    f"according to the verified "
+                                    f"processing timeline."
                                 )
 
                             else:
 
                                 st.warning(
-                                    "The estimated processing "
+                                    "⚠️ The official processing "
                                     "timeline has been reached."
                                 )
 
-                        if expected:
+                    else:
 
-                            st.write(
-                                "**Expected completion date:** "
-                                f"{format_date(expected)}"
-                            )
+                        st.info(
+                            "⏳ A dynamic countdown is unavailable "
+                            "because no official processing timeline "
+                            "was verified."
+                        )
+
+                    # ==================================================
+                    # TIMELINE SOURCE
+                    # ==================================================
+
+                    if application[
+                        "timeline_verified"
+                    ]:
+
+                        st.success(
+                            "✅ Processing timeline verified "
+                            "from an official source."
+                        )
 
                         if application[
-                            "timeline_verified"
+                            "timeline_source"
                         ]:
 
-                            st.success(
-                                "Processing timeline was verified "
-                                "from the provided official website."
-                            )
-
-                            if application[
-                                "timeline_source"
-                            ]:
-
-                                st.caption(
-                                    "Timeline source: "
-                                    + application[
-                                        "timeline_source"
-                                    ]
-                                )
-
-                        else:
-
-                            st.info(
-                                "No official processing timeline "
-                                "was verified for this application."
+                            st.caption(
+                                "Timeline source: "
+                                + application[
+                                    "timeline_source"
+                                ]
                             )
 
                     else:
 
                         st.info(
-                            "A countdown cannot be calculated because "
-                            "an official processing timeline was not verified."
+                            "The processing timeline was not "
+                            "officially verified."
                         )
+
+                else:
+
+                    st.warning(
+                        "The application exists in the external "
+                        "status system, but local application details "
+                        "are not available."
+                    )
 
 
 # ============================================================
-# VOICE RESPONSE SECTION
+# VOICE ASSISTANT
 # ============================================================
 
 st.divider()
 
-st.subheader("🔊 Voice Assistant")
-
-st.write(
-    "You can have the latest NextStep AI response "
-    "read aloud."
+st.subheader(
+    "🔊 Voice Assistant"
 )
 
 if st.session_state.get(
@@ -2834,31 +3090,30 @@ if st.session_state.get(
             "Generating voice..."
         ):
 
-            tts_result = text_to_speech(
+            audio_result = text_to_speech(
                 st.session_state[
                     "last_ai_response"
                 ],
                 language
             )
 
-        if tts_result["success"]:
+        if audio_result["success"]:
 
             st.audio(
-                tts_result["audio"],
+                audio_result["audio"],
                 format="audio/wav"
             )
 
         else:
 
             st.warning(
-                tts_result["error"]
+                audio_result["error"]
             )
 
 else:
 
     st.caption(
-        "Voice output will appear when an AI response "
-        "is available."
+        "Voice output is available when an AI response is generated."
     )
 
 
@@ -2868,9 +3123,18 @@ else:
 
 st.markdown(
     """
-    <div style="text-align:center; padding:25px; color:#777;">
-        🤖 <b>NextStep AI</b><br>
+    <div style="
+        text-align:center;
+        padding:25px;
+        color:#777;
+    ">
+
+        🤖 <b>NextStep AI</b>
+
+        <br>
+
         Discover • Prepare • Submit • Track
+
     </div>
     """,
     unsafe_allow_html=True
