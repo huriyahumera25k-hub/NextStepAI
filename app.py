@@ -3117,25 +3117,3 @@ else:
     )
 
 
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        padding:25px;
-        color:#777;
-    ">
-
-        🤖 <b>NextStep AI</b>
-
-        <br>
-
-        Discover • Prepare • Submit • Track
-
-    </div>
-    """,
-    unsafe_allow_html=True
-)
