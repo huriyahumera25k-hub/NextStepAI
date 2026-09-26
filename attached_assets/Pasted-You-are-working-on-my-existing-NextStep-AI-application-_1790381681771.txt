@@ -1,0 +1,561 @@
+You are working on my existing NextStep AI application in this repository.
+
+IMPORTANT:
+Do NOT rebuild the application from scratch.
+Do NOT remove existing functionality.
+Do NOT replace working features unnecessarily.
+First inspect the entire existing codebase, understand its architecture, and then implement the improvements directly in the existing project.
+
+The goal is to turn the current NextStep AI application into a polished, modern, intelligent government-services assistant.
+
+==================================================
+1. PRESERVE THE EXISTING APPLICATION
+==================================================
+
+Before making changes, inspect the complete repository, including:
+
+- app.py
+- services_data.py
+- AI/agent/chat logic
+- voice/speech-to-text code
+- service/intent routing
+- Streamlit session state
+- conversation history
+- Clear Chat/New Chat
+- service application workflows
+- existing UI
+- API integrations
+- configuration
+- requirements/dependencies
+- tests
+
+Understand how everything currently works.
+
+Do not delete working functionality.
+
+==================================================
+2. FIX SERVICE UNDERSTANDING
+==================================================
+
+The application must correctly understand what the user wants.
+
+Examples:
+
+"I want a birth certificate"
+→ Birth Certificate
+
+"I want income tax"
+→ Income Tax
+
+"I want to apply for a driving licence"
+→ Driving Licence
+
+"I need an Aadhaar update"
+→ Aadhaar
+
+Do NOT default to Aadhaar or another service when the user's request is unclear.
+
+If the request is ambiguous:
+
+"I need a certificate."
+
+ask:
+
+"Which certificate do you need?"
+
+Do not guess.
+
+Use the existing service catalogue as the source of truth.
+
+Use service names, aliases, descriptions, keywords, and natural-language intent where appropriate.
+
+Do not solve this using a giant collection of hard-coded one-off if/else statements.
+
+==================================================
+3. FIX VOICE INPUT
+==================================================
+
+Improve the existing voice-input system.
+
+The flow should be:
+
+Microphone
+→ Listening
+→ Final transcription
+→ Display transcript
+→ Intent/service detection
+→ Response
+
+The application must:
+
+- clearly show when it is listening
+- use the final transcript rather than interim speech
+- prevent duplicate submissions
+- prevent stale transcripts from previous requests
+- handle microphone permission errors
+- handle no-speech errors
+- handle recognition failures
+- allow retry
+- show the user what was heard
+- use the same routing system as typed messages
+
+Example:
+
+User says:
+"I want to apply for a birth certificate."
+
+The application must not interpret it as Driving Licence or Aadhaar.
+
+User says:
+"I want income tax."
+
+It must not route to an unrelated service.
+
+If confidence is low, ask the user to confirm or repeat.
+
+==================================================
+4. CONVERSATION HISTORY
+==================================================
+
+Make the chat behave like a real assistant.
+
+Maintain the current conversation during the session.
+
+Example:
+
+User:
+"I want a passport."
+
+Assistant:
+"Are you applying for a new passport or renewing one?"
+
+User:
+"Renewing."
+
+The assistant must understand what "renewing" refers to.
+
+But if the user changes topic:
+
+"I actually need a birth certificate."
+
+the assistant must switch to Birth Certificate.
+
+The newest user request must take priority over stale context.
+
+==================================================
+5. CLEAR CHAT / NEW CHAT
+==================================================
+
+Add a highly visible:
+
+New Chat
+and/or
+Clear Chat
+
+control.
+
+When activated, it must clear:
+
+- chat messages
+- selected service
+- current intent
+- voice transcript
+- temporary workflow state
+- temporary form values
+- pending service state
+
+After clearing, the next request must behave like a completely new conversation.
+
+==================================================
+6. SMART SERVICE EXPERIENCE
+==================================================
+
+When the user identifies a service, show a polished service card.
+
+For example:
+
+Birth Certificate
+
+Short description
+
+Available actions:
+
+[Start Application]
+[View Requirements]
+[How It Works]
+[Official Website]
+
+Only show actions that are actually supported.
+
+Do not show an "Apply" action if the application cannot actually perform the application workflow.
+
+==================================================
+7. ACTUAL APPLICATION WORKFLOWS
+==================================================
+
+If NextStep AI can actually guide or perform a service workflow, make it feel like a guided process.
+
+Example:
+
+Step 1 — Personal Information
+Step 2 — Required Details
+Step 3 — Documents
+Step 4 — Review
+Step 5 — Continue/Submit
+
+Show progress clearly.
+
+If final submission must occur on an external government website, clearly explain that.
+
+NEVER claim that an application was submitted unless the application actually submitted it and has confirmation.
+
+If the app cannot perform the application itself, provide the correct official next step rather than pretending it can.
+
+==================================================
+8. DOCUMENT CHECKLIST
+==================================================
+
+Where information exists in the service catalogue, provide a clear checklist.
+
+Example:
+
+Required documents:
+
+☐ Identity proof
+☐ Address proof
+☐ Supporting document
+☐ Photograph
+
+Do not invent requirements that are not supported by the application's data or reliable configured sources.
+
+==================================================
+9. SMART ASSISTANT BEHAVIOR
+==================================================
+
+NextStep AI should not behave like a simple link generator.
+
+It should understand different types of requests:
+
+General question
+Service discovery
+Application request
+Requirements question
+Process question
+Follow-up question
+Ambiguous request
+Normal conversation
+
+Examples:
+
+"Hello"
+→ respond naturally.
+
+"What documents do I need?"
+→ use relevant conversation context when available.
+
+"I want to apply for a birth certificate."
+→ identify the service and provide the appropriate next action.
+
+"How long does it take?"
+→ understand which service the user is referring to.
+
+"I need a certificate."
+→ ask for clarification.
+
+Only ask questions when necessary.
+
+Do not make the user repeatedly provide information that is already known.
+
+==================================================
+10. MODERN UI/UX REDESIGN
+==================================================
+
+Improve the existing interface substantially while keeping the application's identity.
+
+Create a clean, professional, modern interface.
+
+Improve:
+
+- header
+- welcome screen
+- chat area
+- message bubbles
+- service cards
+- buttons
+- forms
+- microphone control
+- loading states
+- error states
+- empty states
+- history panel
+- navigation
+- search
+- progress indicators
+
+Create a welcome experience such as:
+
+"How can I help you today?"
+
+Suggested actions:
+
+[Find a Service]
+[Apply for a Service]
+[Check Documents]
+[Track an Application]
+[Ask a Question]
+
+Add example prompts users can click.
+
+Do not overcrowd the UI.
+
+Avoid unnecessary animations and excessive decorative elements.
+
+==================================================
+11. SERVICE SEARCH
+==================================================
+
+Add an easy service search.
+
+Users should be able to type:
+
+birth
+tax
+passport
+licence
+
+and see relevant services from the existing service catalogue.
+
+Do not create a duplicate service database.
+
+==================================================
+12. SERVICE CATEGORIES
+==================================================
+
+Where appropriate, organize services into categories based on the actual service data.
+
+Possible categories include:
+
+Identity & Documents
+Certificates
+Transport
+Tax & Finance
+Education
+Employment
+Business
+Social Services
+Other
+
+Only create categories that make sense for the existing services.
+
+==================================================
+13. HISTORY UI
+==================================================
+
+Create a clean conversation-history area.
+
+Allow the user to:
+
+- start a new chat
+- clear the current chat
+- view previous messages
+
+Do not allow old service state to leak into a new conversation.
+
+==================================================
+14. RESPONSIVE UI
+==================================================
+
+Make the interface work well on:
+
+- desktop
+- laptop
+- tablet
+- mobile
+
+Avoid layouts that break on small screens.
+
+==================================================
+15. ACCESSIBILITY
+==================================================
+
+Use:
+
+- readable text
+- clear button labels
+- visible focus states
+- keyboard-friendly controls
+- accessible voice controls
+- meaningful error messages
+
+Voice must never be the only way to use the application.
+
+==================================================
+16. LOADING AND ERROR STATES
+==================================================
+
+Create useful states such as:
+
+"Listening..."
+
+"Understanding your request..."
+
+"Finding the right service..."
+
+"I couldn't determine the service. Could you clarify?"
+
+"Something went wrong. Please try again."
+
+Never leave the user with a blank screen or technical traceback.
+
+==================================================
+17. PERFORMANCE
+==================================================
+
+Avoid:
+
+- duplicate API calls
+- duplicate voice processing
+- unnecessary Streamlit reruns
+- repeated loading of static service data
+- unnecessary expensive operations
+
+Use appropriate caching/state management.
+
+==================================================
+18. SECURITY / PRIVACY
+==================================================
+
+Do not expose API keys or secrets.
+
+Do not unnecessarily log sensitive user information.
+
+Do not store personal information unless the application actually needs it.
+
+==================================================
+19. TESTING
+==================================================
+
+After implementation, run the existing tests and add regression tests.
+
+At minimum test:
+
+TEXT:
+
+"I want a birth certificate"
+→ Birth Certificate
+
+"I want income tax"
+→ Income Tax
+
+"I want a driving licence"
+→ Driving Licence
+
+"I need Aadhaar"
+→ Aadhaar
+
+"I need a certificate"
+→ clarification
+
+"Hello"
+→ normal conversational response
+
+FOLLOW-UP:
+
+"I want a passport."
+then:
+"How much does it cost?"
+
+→ correctly understand the passport context.
+
+TOPIC CHANGE:
+
+"I want a passport."
+then:
+"I actually need a birth certificate."
+
+→ switch to Birth Certificate.
+
+CLEAR CHAT:
+
+Start a conversation.
+Clear Chat.
+Ask a new question.
+
+→ previous service/context must not leak into the new conversation.
+
+VOICE:
+
+Verify that final voice transcripts go through the same routing logic as typed text.
+
+Verify that stale/partial/duplicate transcripts are not submitted.
+
+==================================================
+20. RUN THE APPLICATION
+==================================================
+
+After changes:
+
+- install missing dependencies if necessary
+- run the application
+- verify it starts successfully
+- verify the main UI renders
+- verify chat works
+- verify voice UI works
+- verify service search works
+- verify history works
+- verify Clear Chat works
+- verify service cards/workflows work
+
+Fix any runtime/import errors you encounter.
+
+==================================================
+21. IMPORTANT DEVELOPMENT RULE
+==================================================
+
+Do not simply say that something is implemented.
+
+Actually inspect the code.
+
+Actually modify the repository.
+
+Actually run tests.
+
+Actually run the application.
+
+Actually fix errors discovered during testing.
+
+Do not leave TODO placeholders for the requested functionality.
+
+Do not remove existing working functionality just to simplify the implementation.
+
+==================================================
+22. GIT SAFETY
+==================================================
+
+Before making major changes, create/use a separate feature branch if the current environment supports it.
+
+Do not overwrite the main branch blindly.
+
+Keep the changes reviewable.
+
+==================================================
+23. FINAL REPORT
+==================================================
+
+When finished, report:
+
+1. Files changed
+2. Voice improvements
+3. Service-routing improvements
+4. History improvements
+5. Clear Chat improvements
+6. Application workflow improvements
+7. UI improvements
+8. New features
+9. Tests added
+10. Tests passed/failed
+11. Application run result
+12. Any limitations that remain
+13. Exact command to run the application
+
+The final result should feel like a polished NextStep AI product, not just a basic chatbot with government links.
