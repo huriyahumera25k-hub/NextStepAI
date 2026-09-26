@@ -4,7 +4,6 @@ import json
 import re
 import sqlite3
 import base64
-import hashlib
 import uuid
 import html
 import os
@@ -38,21 +37,6 @@ SARVAM_STT_URL = "https://api.sarvam.ai/speech-to-text"
 SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 
 REQUEST_TIMEOUT = 45
-
-# Shared visual identity mark used in the sidebar and page header.
-LOGO_SVG = """
-<svg viewBox="0 0 96 96" role="img" aria-label="NextStep AI compass logo"
-     xmlns="http://www.w3.org/2000/svg">
-    <circle cx="48" cy="48" r="43" fill="#334E68"/>
-    <circle cx="48" cy="48" r="35" fill="#FBF8F2" stroke="#D8A131" stroke-width="4"/>
-    <path d="M48 16v8M48 72v8M16 48h8M72 48h8"
-          stroke="#C66A43" stroke-width="4" stroke-linecap="round"/>
-    <path d="M48 25 59 48 48 71 37 48Z" fill="#C66A43"/>
-    <path d="m48 25 11 23H48Z" fill="#D8A131"/>
-    <path d="m48 71-11-23h11Z" fill="#334E68"/>
-    <circle cx="48" cy="48" r="6" fill="#FBF8F2" stroke="#D8A131" stroke-width="3"/>
-</svg>
-"""
 
 
 # ============================================================
@@ -468,168 +452,6 @@ SERVICE_REGISTRY = {
             "as a state service."
         ),
     },
-
-    "aadhaar": {
-        "keywords": [
-            "aadhaar",
-            "aadhar",
-            "aadhaar update",
-            "aadhaar correction",
-            "aadhaar enrollment",
-            "uidai",
-        ],
-        "service_name": "Aadhaar",
-        "service_category": "Identity & Documents",
-        "jurisdiction": "India",
-        "department": "Unique Identification Authority of India",
-        "portal_url": "https://myaadhaar.uidai.gov.in/",
-        "state_service_url": "https://uidai.gov.in/",
-        "form_url": "",
-        "steps": [
-            "Open the official UIDAI or MyAadhaar portal.",
-            "Choose the Aadhaar service you need.",
-            "Follow the current identity verification instructions.",
-            "Review the request before confirming it.",
-            "Complete the official submission or appointment flow.",
-            "Save the acknowledgement or update reference number.",
-        ],
-        "requirements": [
-            {
-                "name": "Current UIDAI checklist",
-                "description": (
-                    "Use the official UIDAI portal to confirm the "
-                    "documents and verification method for your request."
-                ),
-                "mandatory": True,
-            },
-        ],
-        "note": (
-            "Aadhaar updates and enrolment requirements can vary by "
-            "request type. The official UIDAI portal is the source of truth."
-        ),
-    },
-
-    "driving_licence": {
-        "keywords": [
-            "driving licence",
-            "driving license",
-            "driver licence",
-            "driver license",
-            "learners licence",
-            "learning licence",
-            "parivahan",
-        ],
-        "service_name": "Driving Licence",
-        "service_category": "Transport",
-        "jurisdiction": "India",
-        "department": "Ministry of Road Transport & Highways",
-        "portal_url": "https://parivahan.gov.in/",
-        "state_service_url": "https://parivahan.gov.in/",
-        "form_url": "",
-        "steps": [
-            "Open the official Parivahan Sarathi service.",
-            "Select the relevant driving licence service and state.",
-            "Enter the information requested by the official portal.",
-            "Complete any required appointment, test or verification step.",
-            "Review the application details.",
-            "Submit on the official portal and save the reference number.",
-        ],
-        "requirements": [
-            {
-                "name": "Current Parivahan checklist",
-                "description": (
-                    "Confirm the current documents and eligibility "
-                    "requirements shown for your state and service."
-                ),
-                "mandatory": True,
-            },
-        ],
-        "note": (
-            "Driving licence services vary by state and request type. "
-            "The official Parivahan portal provides the current checklist."
-        ),
-    },
-
-    "income_tax": {
-        "keywords": [
-            "income tax",
-            "income-tax",
-            "tax return",
-            "income tax return",
-            "itr",
-            "file tax",
-            "tax filing",
-        ],
-        "service_name": "Income Tax",
-        "service_category": "Tax & Finance",
-        "jurisdiction": "India",
-        "department": "Income Tax Department",
-        "portal_url": "https://www.incometax.gov.in/iec/foportal/",
-        "state_service_url": "https://www.incometax.gov.in/iec/foportal/",
-        "form_url": "",
-        "steps": [
-            "Open the official Income Tax e-Filing portal.",
-            "Choose the relevant filing or tax service.",
-            "Sign in or create an account on the official portal.",
-            "Enter the information requested by the portal.",
-            "Review the return or request carefully.",
-            "Complete the official verification and submission flow.",
-            "Save the acknowledgement number.",
-        ],
-        "requirements": [
-            {
-                "name": "Current e-Filing checklist",
-                "description": (
-                    "Use the official Income Tax portal to confirm "
-                    "the documents and details required for your filing."
-                ),
-                "mandatory": True,
-            },
-        ],
-        "note": (
-            "Tax filing requirements depend on the return type and "
-            "financial year. Confirm the current details on the official portal."
-        ),
-    },
-
-    "passport": {
-        "keywords": [
-            "passport",
-            "passport application",
-            "passport renewal",
-            "passport reissue",
-            "passport seva",
-        ],
-        "service_name": "Passport",
-        "service_category": "Identity & Documents",
-        "jurisdiction": "India",
-        "department": "Ministry of External Affairs",
-        "portal_url": "https://www.passportindia.gov.in/",
-        "state_service_url": "https://www.passportindia.gov.in/",
-        "form_url": "",
-        "steps": [
-            "Open the official Passport Seva portal.",
-            "Choose a new passport, renewal or re-issue service.",
-            "Complete the official application form.",
-            "Pay and schedule an appointment if required.",
-            "Attend the official verification appointment.",
-            "Track the request using the official reference number.",
-        ],
-        "requirements": [
-            {
-                "name": "Current Passport Seva checklist",
-                "description": (
-                    "Confirm the documents and appointment requirements "
-                    "shown for your passport service."
-                ),
-                "mandatory": True,
-            },
-        ],
-        "note": (
-            "New passport, renewal and re-issue requirements can differ. "
-            "Use the official Passport Seva checklist for the current request."
-        ),
-    },
 }
 
 
@@ -642,8 +464,6 @@ DEFAULT_STATE = {
 
     "typed_service_request": "",
     "voice_text": "",
-    "voice_status": "",
-    "voice_audio_hash": "",
 
     "service_identified": False,
     "identified_service": None,
@@ -667,7 +487,6 @@ DEFAULT_STATE = {
     "submission_result": None,
 
     "last_ai_response": "",
-    "service_search": "",
 
     "language": "English",
 
@@ -724,576 +543,58 @@ st.markdown(
     """
     <style>
 
-    :root {
-        --ns-ink: #17232d;
-        --ns-ink-soft: #40515d;
-        --ns-muted: #64737d;
-        --ns-paper: #f5f0e8;
-        --ns-surface: #fbf8f2;
-        --ns-surface-strong: #fffdf9;
-        --ns-line: rgba(52, 78, 104, 0.16);
-        --ns-line-strong: rgba(52, 78, 104, 0.28);
-        --ns-indigo: #334e68;
-        --ns-indigo-dark: #243b53;
-        --ns-terracotta: #b85d3c;
-        --ns-terracotta-soft: #f7e9e1;
-        --ns-marigold: #b77c1d;
-        --ns-marigold-soft: #fbf1d9;
-        --ns-teal: #267477;
-        --ns-teal-soft: #e5f2ef;
-        --ns-shadow: 0 18px 45px rgba(36, 59, 83, 0.08);
-    }
-
-    html, body, [class*="css"] {
-        font-family: "Avenir Next", "Segoe UI", sans-serif;
-        color: var(--ns-ink);
-    }
-
-    .stApp {
-        background:
-            radial-gradient(circle at 86% 4%, rgba(216, 161, 49, 0.08), transparent 24rem),
-            linear-gradient(180deg, var(--ns-paper) 0%, #f8f5ef 46%, #f5f0e8 100%);
-    }
-
-    .stApp > header {
-        background: transparent;
-    }
-
-    [data-testid="stAppViewContainer"] > .main {
-        padding-top: 2.25rem;
-    }
-
-    [data-testid="stMainBlockContainer"] {
-        max-width: 1220px;
-        padding-left: clamp(1rem, 4vw, 4.25rem);
-        padding-right: clamp(1rem, 4vw, 4.25rem);
-        padding-bottom: 4rem;
-    }
-
-    [data-testid="stSidebar"] {
-        background: #213746;
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    [data-testid="stSidebar"] > div:first-child {
-        background:
-            linear-gradient(180deg, rgba(255,255,255,0.035), transparent 42%),
-            #213746;
-        padding: 1.45rem 1rem 1.2rem;
-    }
-
-    [data-testid="stSidebar"] * {
-        color: #f7f4ee;
-    }
-
-    [data-testid="stSidebar"] .stCaption,
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-        color: rgba(247, 244, 238, 0.7);
-    }
-
-    [data-testid="stSidebar"] hr {
-        border-color: rgba(255, 255, 255, 0.12);
-        margin: 1.15rem 0;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stButton"] > button {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.13);
-        color: #fffdf9;
-        min-height: 2.7rem;
-        text-align: left;
-        transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stButton"] > button:hover {
-        background: rgba(255, 255, 255, 0.15);
-        border-color: rgba(255, 255, 255, 0.28);
-        transform: translateY(-1px);
-    }
-
-    [data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"] {
-        background: #d8a131;
-        border-color: #d8a131;
-        color: #17232d;
-        font-weight: 750;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"]:hover {
-        background: #e2b14a;
-        border-color: #e2b14a;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stButton"] p {
-        font-size: 0.88rem;
-        font-weight: 650;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: rgba(255, 255, 255, 0.06);
-    }
-
     .main-title {
-        color: var(--ns-ink);
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(2.4rem, 5vw, 4.4rem);
-        font-weight: 700;
-        letter-spacing: -0.065em;
-        line-height: 0.98;
-        margin: 0 0 0.35rem;
-    }
-
-    .brand-lockup {
-        align-items: center;
-        display: flex;
-        gap: 1.05rem;
-        margin-bottom: 0.35rem;
-    }
-
-    .brand-logo {
-        align-items: center;
-        background: var(--ns-surface-strong);
-        border: 1px solid rgba(51, 78, 104, 0.16);
-        border-radius: 1.3rem;
-        box-shadow: 0 10px 25px rgba(36, 59, 83, 0.12);
-        display: flex;
-        flex: 0 0 auto;
-        height: clamp(4.2rem, 8vw, 5.2rem);
-        justify-content: center;
-        overflow: hidden;
-        padding: 0.3rem;
-        width: clamp(4.2rem, 8vw, 5.2rem);
-    }
-
-    .brand-logo svg {
-        height: 100%;
-        width: 100%;
-    }
-
-    .brand-kicker {
-        color: var(--ns-terracotta);
-        font-size: 0.72rem;
-        font-weight: 800;
-        letter-spacing: 0.17em;
-        margin-bottom: 0.3rem;
-        text-transform: uppercase;
-    }
-
-    .sidebar-lockup {
-        align-items: center;
-        display: flex;
-        gap: 0.65rem;
-        margin-bottom: 0.45rem;
-    }
-
-    .sidebar-lockup .brand-logo {
-        border-radius: 0.7rem;
-        box-shadow: none;
-        height: 2.35rem;
-        padding: 0.12rem;
-        width: 2.35rem;
-    }
-
-    .sidebar-lockup strong {
-        color: #fffdf9;
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: 1.12rem;
-        letter-spacing: -0.02em;
+        font-size: 44px;
+        font-weight: 850;
+        letter-spacing: -1.5px;
+        margin-bottom: 0;
     }
 
     .subtitle {
-        color: var(--ns-ink-soft);
-        font-size: 0.91rem;
-        font-weight: 700;
-        letter-spacing: 0.17em;
-        margin: 0 0 1.8rem;
-        text-transform: uppercase;
+        font-size: 17px;
+        opacity: 0.70;
+        margin-top: 4px;
+        margin-bottom: 22px;
     }
 
     .hero-card {
-        background:
-            linear-gradient(rgba(255,255,255,0.32) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.32) 1px, transparent 1px),
-            var(--ns-indigo);
-        background-size: 26px 26px;
-        border: 1px solid rgba(255,255,255,0.2);
-        border-radius: 1.35rem;
-        box-shadow: var(--ns-shadow);
-        color: #fffdf9;
-        margin: 0 0 1.15rem;
-        overflow: hidden;
-        padding: clamp(1.4rem, 4vw, 2.5rem);
-        position: relative;
-    }
-
-    .hero-card::after {
-        background: var(--ns-terracotta);
-        border-radius: 50%;
-        content: "";
-        height: 11rem;
-        opacity: 0.82;
-        position: absolute;
-        right: -4rem;
-        top: -5rem;
-        width: 11rem;
-    }
-
-    .hero-card h2 {
-        color: #fffdf9;
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(1.8rem, 3vw, 2.75rem);
-        letter-spacing: -0.045em;
-        line-height: 1.05;
-        margin: 0 0 0.75rem;
-        max-width: 38rem;
-        position: relative;
-        z-index: 1;
-    }
-
-    .hero-card p {
-        color: rgba(255, 253, 249, 0.92) !important;
-        font-size: 1rem;
-        line-height: 1.65;
-        margin: 0;
-        max-width: 42rem;
-        position: relative;
-        z-index: 1;
+        padding: 30px;
+        border-radius: 24px;
+        border: 1px solid rgba(128,128,128,0.22);
+        background: linear-gradient(
+            135deg,
+            rgba(80,120,255,0.12),
+            rgba(120,80,220,0.06)
+        );
+        margin-bottom: 20px;
     }
 
     .workflow-card {
-        background: rgba(255, 253, 249, 0.74);
-        border: 1px solid var(--ns-line);
-        border-left: 4px solid var(--ns-indigo);
-        border-radius: 0.85rem;
-        box-shadow: 0 7px 18px rgba(36, 59, 83, 0.045);
-        margin: 0.75rem 0;
-        padding: 1.1rem 1.3rem;
-        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-    }
-
-    .workflow-card:hover {
-        border-color: var(--ns-line-strong);
-        box-shadow: 0 12px 26px rgba(36, 59, 83, 0.08);
-        transform: translateY(-1px);
+        padding: 22px;
+        border-radius: 18px;
+        border: 1px solid rgba(128,128,128,0.22);
+        margin: 12px 0;
     }
 
     .step-active {
-        background: linear-gradient(90deg, rgba(51, 78, 104, 0.1), rgba(255,255,255,0.24));
-        border: 1px solid rgba(51, 78, 104, 0.18);
-        border-left: 5px solid var(--ns-terracotta);
-        border-radius: 0.9rem;
-        box-shadow: 0 9px 24px rgba(36, 59, 83, 0.06);
-        margin: 0 0 1.1rem;
-        padding: 1.05rem 1.35rem;
-    }
-
-    .step-active h3 {
-        color: var(--ns-ink);
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: 1.35rem;
-        letter-spacing: -0.02em;
-        margin: 0;
+        padding: 18px;
+        border-radius: 16px;
+        border: 2px solid rgba(80,120,255,0.55);
+        background: rgba(80,120,255,0.08);
+        margin-bottom: 16px;
     }
 
     .small-muted {
-        color: var(--ns-muted);
-        font-size: 0.78rem;
-        line-height: 1.5;
+        font-size: 13px;
+        opacity: 0.68;
     }
 
     .feature-card {
-        background: rgba(255, 253, 249, 0.76);
-        border: 1px solid var(--ns-line);
-        border-radius: 0.9rem;
-        box-shadow: 0 6px 18px rgba(36, 59, 83, 0.04);
-        min-height: 8.5rem;
-        padding: 1.25rem 1.35rem;
-        position: relative;
-        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-    }
-
-    .feature-card::before {
-        background: var(--ns-terracotta);
-        content: "";
-        height: 3px;
-        left: 1.35rem;
-        position: absolute;
-        top: 0;
-        width: 2.6rem;
-    }
-
-    .feature-card:nth-child(2)::before {
-        background: var(--ns-marigold);
-    }
-
-    .feature-card:nth-child(3)::before {
-        background: var(--ns-teal);
-    }
-
-    .feature-card:hover {
-        border-color: var(--ns-line-strong);
-        box-shadow: 0 12px 28px rgba(36, 59, 83, 0.08);
-        transform: translateY(-2px);
-    }
-
-    .feature-card h3 {
-        color: var(--ns-ink);
-        font-size: 1.02rem;
-        margin: 0.4rem 0 0.5rem;
-    }
-
-    .feature-card p {
-        color: var(--ns-ink-soft);
-        font-size: 0.88rem;
-        line-height: 1.55;
-        margin: 0;
-    }
-
-    h1, h2, h3 {
-        color: var(--ns-ink);
-        font-family: Georgia, "Times New Roman", serif;
-        letter-spacing: -0.035em;
-    }
-
-    h2 {
-        font-size: clamp(1.65rem, 3vw, 2.3rem);
-    }
-
-    h3 {
-        font-size: 1.32rem;
-    }
-
-    [data-testid="stMarkdownContainer"] p,
-    [data-testid="stMarkdownContainer"] li {
-        color: var(--ns-ink-soft);
-        line-height: 1.65;
-    }
-
-    [data-testid="stTabs"] {
-        margin-top: 0.5rem;
-    }
-
-    [data-testid="stTabs"] [data-baseweb="tab-list"] {
-        background: rgba(255, 253, 249, 0.6);
-        border: 1px solid var(--ns-line);
-        border-radius: 0.9rem;
-        gap: 0.25rem;
-        padding: 0.3rem;
-    }
-
-    [data-testid="stTabs"] [data-baseweb="tab"] {
-        color: var(--ns-muted);
-        font-size: 0.86rem;
-        font-weight: 750;
-        min-height: 2.75rem;
-        padding: 0.55rem 1rem;
-    }
-
-    [data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"],
-    [data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] * {
-        background: var(--ns-indigo);
-        border-radius: 0.65rem;
-        color: #fffdf9 !important;
-    }
-
-    [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
-        display: none;
-    }
-
-    [data-testid="stTextArea"] textarea,
-    [data-testid="stTextInput"] input {
-        background: rgba(255, 253, 249, 0.88);
-        border: 1px solid var(--ns-line-strong);
-        border-radius: 0.75rem;
-        color: var(--ns-ink);
-        font-size: 0.96rem;
-        min-height: 2.75rem;
-        transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
-    }
-
-    [data-testid="stTextArea"] textarea {
-        line-height: 1.55;
-        padding: 0.85rem 0.95rem;
-    }
-
-    [data-testid="stTextArea"] textarea:focus,
-    [data-testid="stTextInput"] input:focus {
-        background: var(--ns-surface-strong);
-        border-color: var(--ns-indigo);
-        box-shadow: 0 0 0 3px rgba(51, 78, 104, 0.13);
-    }
-
-    [data-testid="stWidgetLabel"] label {
-        color: var(--ns-ink);
-        font-size: 0.82rem;
-        font-weight: 750;
-    }
-
-    [data-testid="stButton"] > button,
-    [data-testid="stLinkButton"] > a,
-    [data-testid="stFormSubmitButton"] > button {
-        border-radius: 0.68rem;
-        font-size: 0.87rem;
-        font-weight: 750;
-        min-height: 2.75rem;
-        transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-    }
-
-    [data-testid="stButton"] > button:not([kind="primary"]),
-    [data-testid="stLinkButton"] > a:not([kind="primary"]) {
-        background: rgba(255, 253, 249, 0.72);
-        border-color: var(--ns-line-strong);
-        color: var(--ns-indigo-dark);
-    }
-
-    [data-testid="stButton"] > button:hover,
-    [data-testid="stLinkButton"] > a:hover,
-    [data-testid="stFormSubmitButton"] > button:hover {
-        box-shadow: 0 7px 16px rgba(36, 59, 83, 0.1);
-        transform: translateY(-1px);
-    }
-
-    [data-testid="stButton"] > button[kind="primary"],
-    [data-testid="stFormSubmitButton"] > button[kind="primary"],
-    [data-testid="stLinkButton"] > a[kind="primary"] {
-        background: var(--ns-terracotta);
-        border-color: var(--ns-terracotta);
-        color: #fffdf9;
-    }
-
-    [data-testid="stButton"] > button[kind="primary"]:hover,
-    [data-testid="stFormSubmitButton"] > button[kind="primary"]:hover,
-    [data-testid="stLinkButton"] > a[kind="primary"]:hover {
-        background: #a95235;
-        border-color: #a95235;
-    }
-
-    [data-testid="stAudioInput"] {
-        background: rgba(255, 253, 249, 0.72);
-        border: 1px solid var(--ns-line);
-        border-radius: 0.9rem;
-        padding: 0.5rem;
-    }
-
-    [data-testid="stAlert"] {
-        border: 1px solid var(--ns-line);
-        border-radius: 0.78rem;
-        box-shadow: 0 5px 16px rgba(36, 59, 83, 0.035);
-    }
-
-    [data-testid="stProgress"] > div > div {
-        background: var(--ns-terracotta);
-    }
-
-    [data-testid="stProgress"] > div {
-        background: rgba(51, 78, 104, 0.13);
-        border-radius: 999px;
-        height: 0.55rem;
-    }
-
-    [data-testid="stMetric"] {
-        background: rgba(255, 253, 249, 0.74);
-        border: 1px solid var(--ns-line);
-        border-radius: 0.85rem;
-        padding: 0.9rem 1rem;
-    }
-
-    [data-testid="stMetricLabel"] {
-        color: var(--ns-muted);
-    }
-
-    [data-testid="stMetricValue"] {
-        color: var(--ns-indigo-dark);
-        font-family: "SFMono-Regular", Consolas, monospace;
-    }
-
-    hr {
-        border: 0;
-        border-top: 1px solid var(--ns-line);
-        margin: 1.6rem 0;
-    }
-
-    code, [data-testid="stCode"] {
-        background: #e9eef0;
-        border: 1px solid var(--ns-line);
-        border-radius: 0.6rem;
-        color: var(--ns-indigo-dark);
-        font-family: "SFMono-Regular", Consolas, monospace;
-    }
-
-    :focus-visible {
-        outline: 3px solid rgba(216, 161, 49, 0.9);
-        outline-offset: 3px;
-    }
-
-    @media (max-width: 768px) {
-        [data-testid="stMainBlockContainer"] {
-            padding-left: 0.9rem;
-            padding-right: 0.9rem;
-        }
-
-        [data-testid="stAppViewContainer"] > .main {
-            padding-top: 1.15rem;
-        }
-
-        .main-title {
-            font-size: 2.65rem;
-        }
-
-        .brand-lockup {
-            align-items: flex-start;
-            gap: 0.75rem;
-        }
-
-        .brand-logo {
-            border-radius: 0.9rem;
-            height: 3.55rem;
-            width: 3.55rem;
-        }
-
-        .brand-kicker {
-            font-size: 0.58rem;
-            letter-spacing: 0.11em;
-        }
-
-        .subtitle {
-            font-size: 0.7rem;
-            letter-spacing: 0.11em;
-            margin-bottom: 1.2rem;
-        }
-
-        .hero-card {
-            border-radius: 1rem;
-            padding: 1.3rem;
-        }
-
-        .hero-card h2 {
-            font-size: 1.9rem;
-        }
-
-        [data-testid="stTabs"] [data-baseweb="tab"] {
-            font-size: 0.74rem;
-            padding-left: 0.45rem;
-            padding-right: 0.45rem;
-        }
-
-        [data-testid="stButton"] > button,
-        [data-testid="stLinkButton"] > a,
-        [data-testid="stFormSubmitButton"] > button {
-            min-height: 3rem;
-        }
-
-        .feature-card {
-            min-height: auto;
-            margin-bottom: 0.7rem;
-        }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
-            scroll-behavior: auto !important;
-            transition-duration: 0.01ms !important;
-            animation-duration: 0.01ms !important;
-        }
+        padding: 20px;
+        border-radius: 18px;
+        border: 1px solid rgba(128,128,128,0.20);
+        background: rgba(128,128,128,0.035);
+        min-height: 150px;
     }
 
     </style>
@@ -1852,71 +1153,6 @@ def add_conversation_message(role, content):
                 pass
 
 
-def get_conversation_messages(conversation_id=None):
-
-    conversation_id = (
-        conversation_id
-        or st.session_state.get("conversation_id")
-    )
-
-    if not conversation_id:
-        return []
-
-    if not DATABASE_AVAILABLE:
-        return [
-            message
-            for message in st.session_state[
-                "memory_messages"
-            ]
-            if message.get("conversation_id")
-            == conversation_id
-        ]
-
-    with DB_LOCK:
-
-        connection = create_database_connection()
-
-        if connection is None:
-            return [
-                message
-                for message in st.session_state[
-                    "memory_messages"
-                ]
-                if message.get("conversation_id")
-                == conversation_id
-            ]
-
-        try:
-
-            cursor = connection.cursor()
-
-            cursor.execute(
-                """
-                SELECT role, content, created_at
-                FROM conversation_messages
-                WHERE conversation_id = ?
-                ORDER BY id ASC
-                """,
-                (conversation_id,),
-            )
-
-            return [
-                dict(row)
-                for row in cursor.fetchall()
-            ]
-
-        except Exception:
-
-            return []
-
-        finally:
-
-            try:
-                connection.close()
-            except Exception:
-                pass
-
-
 def get_conversations():
 
     memory_rows = list(
@@ -2161,15 +1397,7 @@ ensure_current_conversation()
 
 with st.sidebar:
 
-    st.markdown(
-        f"""
-        <div class="sidebar-lockup">
-            <div class="brand-logo">{LOGO_SVG}</div>
-            <strong>NextStep AI</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("## 🧭 NextStep AI")
 
     st.caption(
         "Action-first government service assistant"
@@ -2193,14 +1421,6 @@ with st.sidebar:
 
         save_conversation_state()
 
-        st.rerun()
-
-    if st.button(
-        "🧹 Clear Current Chat",
-        use_container_width=True,
-    ):
-
-        clear_current_chat()
         st.rerun()
 
     st.divider()
@@ -2558,234 +1778,55 @@ def normalize_text(text):
 # SERVICE MATCHING
 # ============================================================
 
-GENERIC_REQUEST_WORDS = {
-    "a",
-    "an",
-    "apply",
-    "application",
-    "certificate",
-    "documents",
-    "for",
-    "how",
-    "i",
-    "it",
-    "much",
-    "my",
-    "need",
-    "new",
-    "of",
-    "please",
-    "service",
-    "the",
-    "to",
-    "want",
-    "what",
-}
-
-
-def service_metadata(service_key, service):
-
-    searchable = [
-        service.get("service_name", ""),
-        service.get("service_category", ""),
-        service.get("department", ""),
-        service.get("jurisdiction", ""),
-        *service.get("keywords", []),
-    ]
-
-    return normalize_text(" ".join(map(str, searchable)))
-
-
-def search_registry_services(query, limit=8):
-
-    normalized = normalize_text(query)
-
-    if not normalized:
-        return []
-
-    query_tokens = {
-        token
-        for token in normalized.split()
-        if token not in {"a", "an", "and", "for", "the", "to"}
-    }
-
-    scored = []
-
-    for key, service in SERVICE_REGISTRY.items():
-
-        service_name = normalize_text(
-            service.get("service_name", "")
-        )
-        searchable = service_metadata(key, service)
-        score = 0
-
-        if normalized in service_name:
-            score += 100
-        elif normalized in searchable:
-            score += 45
-
-        score += sum(
-            4
-            for token in query_tokens
-            if token in searchable.split()
-        )
-
-        if score:
-            match = dict(service)
-            match["registry_key"] = key
-            scored.append((score, match))
-
-    scored.sort(
-        key=lambda item: (
-            item[0],
-            item[1].get("service_name", ""),
-        ),
-        reverse=True,
-    )
-
-    return [service for _, service in scored[:limit]]
-
-
 def find_registry_service(user_request):
 
     normalized = normalize_text(
         user_request
     )
 
-    if not normalized:
-        return None
-
-    scored = []
+    best_key = None
+    best_score = 0
 
     for key, service in SERVICE_REGISTRY.items():
 
         score = 0
 
-        phrases = [
-            service.get("service_name", ""),
-            *service.get("keywords", []),
-        ]
+        for keyword in service.get(
+            "keywords",
+            [],
+        ):
 
-        for phrase in phrases:
+            keyword_normalized = (
+                normalize_text(keyword)
+            )
 
-            phrase_normalized = normalize_text(phrase)
+            if keyword_normalized in normalized:
 
-            if not phrase_normalized:
-                continue
+                score += len(
+                    keyword_normalized.split()
+                )
 
-            if phrase_normalized == normalized:
-                score += 100
-            elif phrase_normalized in normalized:
-                score += 20 + len(
-                    phrase_normalized.split()
-                ) * 4
+        if score > best_score:
 
-        request_tokens = set(normalized.split())
-        specific_tokens = request_tokens - GENERIC_REQUEST_WORDS
-        service_tokens = set(
-            service_metadata(key, service).split()
+            best_score = score
+            best_key = key
+
+    if best_key:
+
+        service = dict(
+            SERVICE_REGISTRY[best_key]
         )
 
-        score += len(
-            specific_tokens.intersection(service_tokens)
-        ) * 2
+        service["registry_key"] = best_key
 
-        if score:
-            scored.append((score, key, service))
-
-    if not scored:
-        return None
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-
-    best_score, best_key, best_service = scored[0]
-
-    if len(scored) > 1 and scored[1][0] == best_score:
-        return None
-
-    service = dict(best_service)
-    service["registry_key"] = best_key
-    service["confidence"] = min(
-        0.99,
-        0.62 + (best_score * 0.025),
-    )
-
-    return service
-
-
-def is_general_message(user_request):
-
-    normalized = normalize_text(user_request)
-
-    return normalized in {
-        "hello",
-        "hi",
-        "hey",
-        "hello there",
-        "good morning",
-        "good afternoon",
-        "good evening",
-    }
-
-
-def is_ambiguous_request(user_request):
-
-    normalized = normalize_text(user_request)
-
-    return (
-        "certificate" in normalized
-        and not find_registry_service(user_request)
-    )
-
-
-def resolve_service_request(user_request):
-
-    direct_match = find_registry_service(user_request)
-
-    if direct_match:
-        return direct_match
-
-    if is_general_message(user_request):
-        return None
-
-    if is_ambiguous_request(user_request):
-        return None
-
-    current_service = st.session_state.get(
-        "identified_service"
-    )
-
-    if not current_service:
-        return None
-
-    follow_up_tokens = {
-        "cost",
-        "costs",
-        "documents",
-        "duration",
-        "long",
-        "process",
-        "renewing",
-        "renewal",
-        "requirements",
-        "required",
-        "time",
-        "what",
-        "which",
-    }
-
-    normalized = normalize_text(user_request)
-
-    if (
-        set(normalized.split()).intersection(
-            follow_up_tokens
+        service["confidence"] = min(
+            1.0,
+            0.65 + (
+                best_score * 0.08
+            ),
         )
-        or normalized in {"yes", "no", "continue", "next"}
-    ):
-        return dict(current_service)
 
-    if OPENROUTER_API_KEY:
-        return identify_service(user_request)
+        return service
 
     return None
 
@@ -3382,155 +2423,12 @@ def reset_workflow():
     ] = None
 
 
-def clear_current_chat():
-
-    conversation_id = st.session_state.get(
-        "conversation_id"
-    )
-
-    if conversation_id:
-
-        st.session_state[
-            "memory_messages"
-        ] = [
-            message
-            for message in st.session_state[
-                "memory_messages"
-            ]
-            if message.get("conversation_id")
-            != conversation_id
-        ]
-
-        if DATABASE_AVAILABLE:
-
-            with DB_LOCK:
-
-                connection = create_database_connection()
-
-                if connection is not None:
-
-                    try:
-
-                        connection.execute(
-                            """
-                            DELETE FROM conversation_messages
-                            WHERE conversation_id = ?
-                            """,
-                            (conversation_id,),
-                        )
-
-                        connection.commit()
-
-                    except Exception:
-
-                        try:
-                            connection.rollback()
-                        except Exception:
-                            pass
-
-                    finally:
-
-                        try:
-                            connection.close()
-                        except Exception:
-                            pass
-
-        reset_conversation_state()
-        st.session_state["conversation_id"] = conversation_id
-        update_conversation_title("New Conversation")
-        save_conversation_state()
-
-
-def start_service_workflow(service, user_request):
-
-    if not service:
-        return False
-
-    reset_workflow()
-
-    st.session_state["typed_service_request"] = (
-        str(user_request or "").strip()
-    )
-    st.session_state["service_identified"] = True
-    st.session_state["identified_service"] = service
-    st.session_state["workflow_active"] = True
-    st.session_state["workflow_step"] = 0
-    st.session_state["requirements"] = get_requirements(
-        service
-    )
-    st.session_state["official_url"] = service.get(
-        "portal_url",
-        "",
-    )
-    st.session_state["official_form_url"] = service.get(
-        "form_url",
-        "",
-    )
-    st.session_state["official_state_url"] = service.get(
-        "state_service_url",
-        "",
-    )
-
-    clean_request = str(user_request or "").strip()
-
-    if (
-        clean_request
-        and st.session_state.get("_request_logged")
-        != clean_request
-    ):
-
-        add_conversation_message(
-            "user",
-            clean_request,
-        )
-        update_conversation_title(clean_request)
-        st.session_state["_request_logged"] = clean_request
-
-    summary = (
-        "Started action workflow for "
-        + str(
-            service.get(
-                "service_name",
-                "government service",
-            )
-        )
-    )
-
-    st.session_state["last_ai_response"] = summary
-    add_conversation_message("assistant", summary)
-    save_conversation_state()
-
-    return True
-
-
-def save_assistant_reply(user_request, reply):
-
-    clean_request = str(user_request or "").strip()
-
-    if clean_request:
-        add_conversation_message("user", clean_request)
-
-    if reply:
-        st.session_state["last_ai_response"] = reply
-        add_conversation_message("assistant", reply)
-
-    save_conversation_state()
-
-
 # ============================================================
 # HEADER
 # ============================================================
 
 st.markdown(
-    f"""
-    <div class="brand-lockup">
-        <div class="brand-logo">{LOGO_SVG}</div>
-        <div>
-            <div class="brand-kicker">Telangana service navigator</div>
-            <div class="main-title">NextStep AI</div>
-        </div>
-    </div>
-    """,
+    '<div class="main-title">🧭 NextStep AI</div>',
     unsafe_allow_html=True,
 )
 
@@ -3644,128 +2542,13 @@ assistant_tab, workflow_tab, status_tab = st.tabs(
 
 with assistant_tab:
 
-    conversation_messages = get_conversation_messages()
-
-    if conversation_messages:
-
-        with st.expander(
-            "Conversation history",
-            expanded=True,
-        ):
-
-            for message in conversation_messages[-8:]:
-
-                role = message.get(
-                    "role",
-                    "assistant",
-                )
-
-                with st.chat_message(
-                    "user"
-                    if role == "user"
-                    else "assistant"
-                ):
-
-                    st.write(
-                        message.get(
-                            "content",
-                            "",
-                        )
-                    )
-
     st.markdown(
         "### What government service do you need?"
     )
 
     st.caption(
-        "Search the catalogue, type naturally, or use your microphone."
+        "Type your request or use your microphone."
     )
-
-    clear_col, help_col = st.columns(
-        [1, 2],
-        gap="small",
-    )
-
-    with clear_col:
-
-        if st.button(
-            "🧹 Clear Chat",
-            use_container_width=True,
-            key="assistant_clear_chat",
-        ):
-
-            clear_current_chat()
-            st.rerun()
-
-    with help_col:
-
-        st.caption(
-            "Your current conversation stays in this session until you clear it."
-        )
-
-    service_search = st.text_input(
-        "Search services",
-        key="service_search",
-        placeholder="Try birth, tax, passport, licence or Aadhaar",
-        label_visibility="collapsed",
-    )
-
-    if service_search.strip():
-
-        search_matches = search_registry_services(
-            service_search
-        )
-
-        if search_matches:
-
-            st.caption(
-                f"{len(search_matches)} matching service"
-                + (
-                    "s"
-                    if len(search_matches) != 1
-                    else ""
-                )
-            )
-
-            for match in search_matches[:5]:
-
-                match_key = match.get(
-                    "registry_key",
-                    "service",
-                )
-
-                if st.button(
-                    (
-                        f"{match.get('service_name', 'Service')}  ·  "
-                        f"{match.get('service_category', 'Government Service')}"
-                    ),
-                    key=f"catalog_{match_key}",
-                    use_container_width=True,
-                ):
-
-                    request = (
-                        "I need "
-                        + str(
-                            match.get(
-                                "service_name",
-                                "this service",
-                            )
-                        )
-                    )
-
-                    start_service_workflow(
-                        match,
-                        request,
-                    )
-
-                    st.rerun()
-
-        else:
-
-            st.info(
-                "No matching service found in the catalogue. "
-                "Try a different keyword."
-            )
 
     voice_audio = st.audio_input(
         "🎙️ Speak your request"
@@ -3777,77 +2560,34 @@ with assistant_tab:
             voice_audio.getvalue()
         )
 
-        audio_hash = hashlib.sha256(
-            audio_bytes
-        ).hexdigest()
-
-        if (
-            audio_hash
-            != st.session_state.get(
-                "voice_audio_hash",
-                "",
-            )
+        with st.spinner(
+            "🎧 Understanding..."
         ):
 
-            st.session_state[
-                "voice_audio_hash"
-            ] = audio_hash
-
-            st.session_state[
-                "voice_status"
-            ] = "Final recording captured. Transcribing..."
-
-            with st.spinner(
-                "🎧 Understanding your final recording..."
-            ):
-
-                transcript = speech_to_text(
-                    audio_bytes,
-                    language,
-                )
-
-            if transcript:
-
-                st.session_state[
-                    "voice_text"
-                ] = transcript
-
-                st.session_state[
-                    "typed_service_request"
-                ] = transcript
-
-                st.session_state[
-                    "voice_status"
-                ] = "Transcript ready. Review it, then start the service."
-
-            else:
-
-                st.session_state[
-                    "voice_text"
-                ] = ""
-
-                st.session_state[
-                    "typed_service_request"
-                ] = ""
-
-                st.session_state[
-                    "voice_status"
-                ] = (
-                    "No speech was detected or recognition failed. "
-                    "Try again or type your request."
-                )
-
-        if st.session_state.get("voice_status"):
-
-            st.info(
-                st.session_state["voice_status"]
+            transcript = speech_to_text(
+                audio_bytes,
+                language,
             )
 
-        if st.session_state.get("voice_text"):
+        if transcript:
+
+            st.session_state[
+                "voice_text"
+            ] = transcript
+
+            st.session_state[
+                "typed_service_request"
+            ] = transcript
 
             st.success(
-                "Heard: "
-                + st.session_state["voice_text"]
+                f"Voice understood: {transcript}"
+            )
+
+        else:
+
+            st.warning(
+                "Voice recognition was unavailable. "
+                "Please type your request."
             )
 
     user_request = st.text_area(
@@ -3881,69 +2621,115 @@ with assistant_tab:
         else:
 
             with st.spinner(
-                "🔎 Finding the right service..."
+                "🧠 Identifying service..."
             ):
 
-                service = resolve_service_request(
+                service = identify_service(
                     user_request
                 )
 
             if not service:
 
-                if is_general_message(user_request):
-
-                    reply = (
-                        "Hello. I can help you find a government "
-                        "service, check its requirements, prepare "
-                        "your information, and continue to the "
-                        "official portal. What do you need today?"
-                    )
-
-                    save_assistant_reply(
-                        user_request,
-                        reply,
-                    )
-
-                    st.success(reply)
-
-                elif is_ambiguous_request(user_request):
-
-                    reply = (
-                        "Which certificate do you need? "
-                        "Try Birth Certificate, Death Certificate, "
-                        "Income Certificate, Caste Certificate, or "
-                        "Residence Certificate."
-                    )
-
-                    save_assistant_reply(
-                        user_request,
-                        reply,
-                    )
-
-                    st.warning(reply)
-
-                else:
-
-                    reply = (
-                        "I couldn't determine the service. "
-                        "Please use a specific name such as "
-                        "birth certificate, income tax, passport, "
-                        "driving licence, or Aadhaar."
-                    )
-
-                    save_assistant_reply(
-                        user_request,
-                        reply,
-                    )
-
-                    st.error(reply)
+                st.error(
+                    "I couldn't identify this service. "
+                    "Try using the official service name."
+                )
 
             else:
 
-                start_service_workflow(
-                    service,
-                    user_request,
+                reset_workflow()
+
+                st.session_state[
+                    "typed_service_request"
+                ] = user_request
+
+                st.session_state[
+                    "service_identified"
+                ] = True
+
+                st.session_state[
+                    "identified_service"
+                ] = service
+
+                st.session_state[
+                    "workflow_active"
+                ] = True
+
+                st.session_state[
+                    "workflow_step"
+                ] = 0
+
+                st.session_state[
+                    "requirements"
+                ] = get_requirements(
+                    service
                 )
+
+                st.session_state[
+                    "official_url"
+                ] = service.get(
+                    "portal_url",
+                    "",
+                )
+
+                st.session_state[
+                    "official_form_url"
+                ] = service.get(
+                    "form_url",
+                    "",
+                )
+
+                st.session_state[
+                    "official_state_url"
+                ] = service.get(
+                    "state_service_url",
+                    "",
+                )
+
+                clean_request = (
+                    user_request.strip()
+                )
+
+                if (
+                    st.session_state.get(
+                        "_request_logged"
+                    )
+                    != clean_request
+                ):
+
+                    add_conversation_message(
+                        "user",
+                        clean_request,
+                    )
+
+                    update_conversation_title(
+                        clean_request
+                    )
+
+                    st.session_state[
+                        "_request_logged"
+                    ] = clean_request
+
+                summary = (
+                    "Started action workflow for "
+                    + str(
+                        service.get(
+                            "service_name",
+                            "government service",
+                        )
+                    )
+                )
+
+                st.session_state[
+                    "last_ai_response"
+                ] = summary
+
+                add_conversation_message(
+                    "assistant",
+                    summary,
+                )
+
+                save_conversation_state()
 
                 st.rerun()
 
