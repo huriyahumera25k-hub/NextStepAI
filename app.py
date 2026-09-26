@@ -38,6 +38,21 @@ SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 
 REQUEST_TIMEOUT = 45
 
+# Shared visual identity mark used in the sidebar and page header.
+LOGO_SVG = """
+<svg viewBox="0 0 96 96" role="img" aria-label="NextStep AI compass logo"
+     xmlns="http://www.w3.org/2000/svg">
+    <circle cx="48" cy="48" r="43" fill="#334E68"/>
+    <circle cx="48" cy="48" r="35" fill="#FBF8F2" stroke="#D8A131" stroke-width="4"/>
+    <path d="M48 16v8M48 72v8M16 48h8M72 48h8"
+          stroke="#C66A43" stroke-width="4" stroke-linecap="round"/>
+    <path d="M48 25 59 48 48 71 37 48Z" fill="#C66A43"/>
+    <path d="m48 25 11 23H48Z" fill="#D8A131"/>
+    <path d="m48 71-11-23h11Z" fill="#334E68"/>
+    <circle cx="48" cy="48" r="6" fill="#FBF8F2" stroke="#D8A131" stroke-width="3"/>
+</svg>
+"""
+
 
 # ============================================================
 # SAFE DATABASE PATH
@@ -661,8 +676,62 @@ st.markdown(
         margin: 0 0 0.35rem;
     }
 
-    .main-title::first-letter {
+    .brand-lockup {
+        align-items: center;
+        display: flex;
+        gap: 1.05rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .brand-logo {
+        align-items: center;
+        background: var(--ns-surface-strong);
+        border: 1px solid rgba(51, 78, 104, 0.16);
+        border-radius: 1.3rem;
+        box-shadow: 0 10px 25px rgba(36, 59, 83, 0.12);
+        display: flex;
+        flex: 0 0 auto;
+        height: clamp(4.2rem, 8vw, 5.2rem);
+        justify-content: center;
+        overflow: hidden;
+        padding: 0.3rem;
+        width: clamp(4.2rem, 8vw, 5.2rem);
+    }
+
+    .brand-logo svg {
+        height: 100%;
+        width: 100%;
+    }
+
+    .brand-kicker {
         color: var(--ns-terracotta);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.17em;
+        margin-bottom: 0.3rem;
+        text-transform: uppercase;
+    }
+
+    .sidebar-lockup {
+        align-items: center;
+        display: flex;
+        gap: 0.65rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .sidebar-lockup .brand-logo {
+        border-radius: 0.7rem;
+        box-shadow: none;
+        height: 2.35rem;
+        padding: 0.12rem;
+        width: 2.35rem;
+    }
+
+    .sidebar-lockup strong {
+        color: #fffdf9;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.12rem;
+        letter-spacing: -0.02em;
     }
 
     .subtitle {
@@ -1002,6 +1071,22 @@ st.markdown(
 
         .main-title {
             font-size: 2.65rem;
+        }
+
+        .brand-lockup {
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .brand-logo {
+            border-radius: 0.9rem;
+            height: 3.55rem;
+            width: 3.55rem;
+        }
+
+        .brand-kicker {
+            font-size: 0.58rem;
+            letter-spacing: 0.11em;
         }
 
         .subtitle {
@@ -1845,7 +1930,15 @@ ensure_current_conversation()
 
 with st.sidebar:
 
-    st.markdown("## 🧭 NextStep AI")
+    st.markdown(
+        f"""
+        <div class="sidebar-lockup">
+            <div class="brand-logo">{LOGO_SVG}</div>
+            <strong>NextStep AI</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.caption(
         "Action-first government service assistant"
@@ -2876,7 +2969,15 @@ def reset_workflow():
 # ============================================================
 
 st.markdown(
-    '<div class="main-title">🧭 NextStep AI</div>',
+    f"""
+    <div class="brand-lockup">
+        <div class="brand-logo">{LOGO_SVG}</div>
+        <div>
+            <div class="brand-kicker">Telangana service navigator</div>
+            <div class="main-title">NextStep AI</div>
+        </div>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
